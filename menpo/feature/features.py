@@ -578,6 +578,159 @@ def lbp(pixels, radius=None, samples=None, mapping_type='riu2',
     #                             'original_image_channels':
     #                                 self._image.pixels.shape[2]}
 
+@winitfeature
+def gbp(pixels, radius=None, samples=None, window_step_vertical=1,
+        window_step_horizontal=1, window_step_unit='pixels', padding=True,
+        verbose=False, skip_checks=False):
+    r"""
+    Computes a 2-dimensional Generalized Binary Pattern features image with N*C
+    number of channels, where N is the number of channels of the original image
+    and C is the number of radius/samples values combinations that are used in
+    the GBP computation. The binary codes are converted to decimal.
+
+    Parameters
+    ----------
+    pixels :  `ndarray`
+        The pixel data for the image, where the last axis represents the
+        number of channels.
+
+    radius : `int` or `list` of `int`
+        It defines the radius of the circle (or circles) at which the sampling
+        points will be extracted. The radius (or radii) values must be greater
+        than zero. There must be a radius value for each samples value, thus
+        they both need to have the same length.
+
+        Default: None = [1, 2, 3, 4]
+
+    samples : `int` or `list` of `int`
+        It defines the number of sampling points that will be extracted at each
+        circle. The samples value (or values) must be greater than zero. There
+        must be a samples value for each radius value, thus they both need to
+        have the same length.
+
+        Default: None = [8, 8, 8, 8]
+
+    window_step_vertical : float
+        Defines the vertical step by which the window in the
+        ImageWindowIterator is moved, thus it controls the features density.
+        The metric unit is defined by window_step_unit.
+
+    window_step_horizontal : float
+        Defines the horizontal step by which the window in the
+        ImageWindowIterator is moved, thus it controls the features density.
+        The metric unit is defined by window_step_unit.
+
+    window_step_unit : ``'pixels'`` or ``'window'``
+        Defines the metric unit of the window_step_vertical and
+        window_step_horizontal parameters for the ImageWindowIterator object.
+
+    padding : bool
+        Enables/disables padding for the close-to-boundary windows in the
+        ImageWindowIterator object. When padding is enabled, the
+        out-of-boundary pixels are set to zero.
+
+    verbose : `bool`, optional
+        Flag to print LBP related information.
+
+    skip_checks : `bool`, optional
+        If True
+    Raises
+    -------
+    ValueError
+        Radius and samples must both be either integers or lists
+    ValueError
+        Radius and samples must have the same length
+    ValueError
+        Radius must be > 0
+    ValueError
+        Radii must be > 0
+    ValueError
+        Samples must be > 0
+    ValueError
+        Horizontal window step must be > 0
+    ValueError
+        Vertical window step must be > 0
+    ValueError
+        Window step unit must be either pixels or window
+    """
+    if radius is None:
+        radius = range(1, 5)
+    if samples is None:
+        samples = [8]*4
+
+    if not skip_checks:
+        # Check parameters
+        if ((isinstance(radius, int) and isinstance(samples, list)) or
+                (isinstance(radius, list) and isinstance(samples, int))):
+            raise ValueError("Radius and samples must both be either integers "
+                             "or lists")
+        elif isinstance(radius, list) and isinstance(samples, list):
+            if len(radius) != len(samples):
+                raise ValueError("Radius and samples must have the same "
+                                 "length")
+
+        if isinstance(radius, int) and radius < 1:
+            raise ValueError("Radius must be > 0")
+        elif isinstance(radius, list) and sum(r < 1 for r in radius) > 0:
+            raise ValueError("Radii must be > 0")
+
+        if isinstance(samples, int) and samples < 1:
+            raise ValueError("Samples must be > 0")
+        elif isinstance(samples, list) and sum(s < 1 for s in samples) > 0:
+            raise ValueError("Samples must be > 0")
+
+        if window_step_horizontal <= 0:
+            raise ValueError("Horizontal window step must be > 0")
+
+        if window_step_vertical <= 0:
+            raise ValueError("Vertical window step must be > 0")
+
+        if window_step_unit not in ['pixels', 'window']:
+            raise ValueError("Window step unit must be either pixels or "
+                             "window")
+
+    # Correct input image_data
+    pixels = np.asfortranarray(pixels)
+
+    # Parse options
+    radius = np.asfortranarray(radius)
+    samples = np.asfortranarray(samples)
+    window_height = np.uint32(2 * radius.max() + 1)
+    window_width = window_height
+    if window_step_unit == 'window':
+        window_step_vertical = np.uint32(window_step_vertical * window_height)
+        window_step_horizontal = np.uint32(window_step_horizontal *
+                                           window_width)
+
+    # Create iterator object
+    iterator = WindowIterator(pixels, window_height, window_width,
+                              window_step_horizontal, window_step_vertical,
+                              padding)
+
+    # Print iterator's info
+    if verbose:
+        print(iterator)
+
+    # Compute LBP
+    return iterator.GeneralizedBinaryPattern(radius, samples, verbose)
+
+    # # store parameters
+    # gbp_image.gbp_parameters = {'radius': radius, 'samples': samples,
+    #
+    #                             'window_step_vertical':
+    #                                 window_step_vertical,
+    #                             'window_step_horizontal':
+    #                                 window_step_horizontal,
+    #                             'window_step_unit': window_step_unit,
+    #                             'padding': padding,
+    #
+    #                             'original_image_height':
+    #                                 self._image.pixels.shape[0],
+    #                             'original_image_width':
+    #                                 self._image.pixels.shape[1],
+    #                             'original_image_channels':
+    #                                 self._image.pixels.shape[2]}
+
 @ndfeature
 def no_op(image_data):
     r"""
