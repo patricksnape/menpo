@@ -1,5 +1,5 @@
 # distutils: language = c++
-# distutils: sources = menpo/feature/cpp/ImageWindowIterator.cpp menpo/feature/cpp/WindowFeature.cpp menpo/feature/cpp/HOG.cpp menpo/feature/cpp/LBP.cpp menpo/feature/cpp/GeneralizedBinaryPattern.cpp
+# distutils: sources = menpo/feature/cpp/ImageWindowIterator.cpp menpo/feature/cpp/WindowFeature.cpp menpo/feature/cpp/HOG.cpp menpo/feature/cpp/LBP.cpp menpo/feature/cpp/GeneralizedHistogramBinning.cpp menpo/feature/cpp/GeneralizedBinaryPattern.cpp
 
 import numpy as np
 cimport numpy as np
@@ -60,6 +60,21 @@ cdef extern from "cpp/LBP.h":
             unsigned int mapping_type, unsigned int *uniqueSamples,
             unsigned int *whichMappingTable, unsigned int numberOfUniqueSamples)
         void apply(double *windowImage, double *descriptorVector)
+
+cdef extern from "cpp/GeneralizedHistogramBinning.h":
+    cdef cppclass GeneralizedHistogramBinning(WindowFeature):
+        GeneralizedHistogramBinning(unsigned int windowHeight,
+                                    unsigned int windowWidth,
+                                    unsigned int numberOfChannels,
+                                    unsigned int numberOfOrientationBins,
+                                    unsigned int cellHeightAndWidthInPixels,
+                                    unsigned int blockHeightAndWidthInCells,
+                                    bool enableSignedGradients,
+                                    double l2normClipping)
+        void apply(double *windowImage, double *descriptorVector)
+        unsigned int descriptorLengthPerBlock, \
+            numberOfBlocksPerWindowHorizontally, \
+            numberOfBlocksPerWindowVertically
 
 cdef extern from "cpp/GeneralizedBinaryPattern.h":
     cdef cppclass GeneralizedBinaryPattern(WindowFeature):
@@ -253,6 +268,64 @@ cdef class WindowIterator:
             print info_str
         self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], lbp)
         del lbp
+        return WindowIteratorResult(np.ascontiguousarray(outputImage),
+                                    np.ascontiguousarray(windowsCenters))
+
+    def GeneralizedHistogramBinning(self, numberOfOrientationBins,
+                                    cellHeightAndWidthInPixels,
+                                    blockHeightAndWidthInCells,
+                                    enableSignedGradients,
+                                    l2normClipping, verbose):
+        cdef GeneralizedHistogramBinning *gh = new GeneralizedHistogramBinning(
+                                self.iterator._windowHeight,
+                                self.iterator._windowWidth,
+                                self.iterator._numberOfChannels,
+                                numberOfOrientationBins,
+                                cellHeightAndWidthInPixels,
+                                blockHeightAndWidthInCells,
+                                enableSignedGradients, l2normClipping)
+        if gh.numberOfBlocksPerWindowVertically == 0 or \
+                gh.numberOfBlocksPerWindowHorizontally == 0:
+            raise ValueError("The window-related options are wrong. "
+                             "The number of blocks per window is 0.")
+        cdef double[:, :, :] outputImage = np.zeros(
+            [self.iterator._numberOfWindowsVertically,
+             self.iterator._numberOfWindowsHorizontally,
+             gh.descriptorLengthPerWindow], order='F')
+        cdef int[:, :, :] windowsCenters = np.zeros(
+            [self.iterator._numberOfWindowsVertically,
+             self.iterator._numberOfWindowsHorizontally,
+             2], order='F', dtype=np.int32)
+        if verbose:
+            info_str = "Generalized Histogram Binning features:\n"
+            info_str = "{0}  - Cell is {1}x{1} pixels.\n" \
+                       "  - Block is {2}x{2} cells.\n".format(
+                info_str, <int>cellHeightAndWidthInPixels,
+                <int>blockHeightAndWidthInCells)
+            if enableSignedGradients:
+                info_str = "{}  - {} orientation bins and signed " \
+                           "angles.\n".format(info_str,
+                                              <int>numberOfOrientationBins)
+            else:
+                info_str = "{}  - {} orientation bins and unsigned " \
+                           "angles.\n".format(info_str,
+                                              <int>numberOfOrientationBins)
+            info_str = "{0}  - L2-norm clipped at {1:.1}.\n" \
+                       "  - Number of blocks per window = {2}W x {3}H.\n" \
+                       "  - Descriptor length per window = " \
+                       "{2}W x {3}H x {4} = {5} x 1.\n".format(
+                info_str, l2normClipping,
+                <int>gh.numberOfBlocksPerWindowHorizontally,
+                <int>gh.numberOfBlocksPerWindowVertically,
+                <int>gh.descriptorLengthPerBlock,
+                <int>gh.descriptorLengthPerWindow)
+            info_str = "{}Output image size {}W x {}H x {}.".format(
+                info_str, <int>self.iterator._numberOfWindowsHorizontally,
+                <int>self.iterator._numberOfWindowsVertically,
+                <int>gh.descriptorLengthPerWindow)
+            print info_str
+        self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], gh)
+        del gh
         return WindowIteratorResult(np.ascontiguousarray(outputImage),
                                     np.ascontiguousarray(windowsCenters))
 

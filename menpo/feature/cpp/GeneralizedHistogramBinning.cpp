@@ -1,12 +1,14 @@
-#include "HistogramBinning.h"
+#include "GeneralizedHistogramBinning.h"
 
-HistogramBinning::HistogramBinning(unsigned int windowHeight,
+GeneralizedHistogramBinning::GeneralizedHistogramBinning(
+                                   unsigned int windowHeight,
                                    unsigned int windowWidth,
                                    unsigned int numberOfChannels,
                                    unsigned int numberOfOrientationBins,
                                    unsigned int cellHeightAndWidthInPixels,
                                    unsigned int blockHeightAndWidthInCells,
-                                   bool enableSignedGradients) {
+                                   bool enableSignedGradients,
+                                   double l2normClipping) {
     unsigned int descriptorLengthPerBlock = 0,
                  numberOfBlocksPerWindowVertically = 0,
                  numberOfBlocksPerWindowHorizontally = 0;
@@ -25,6 +27,7 @@ HistogramBinning::HistogramBinning(unsigned int windowHeight,
     this->cellHeightAndWidthInPixels = cellHeightAndWidthInPixels;
     this->blockHeightAndWidthInCells = blockHeightAndWidthInCells;
     this->enableSignedGradients = enableSignedGradients;
+    this->l2normClipping = l2normClipping;
     this->numberOfBlocksPerWindowHorizontally =
                     numberOfBlocksPerWindowHorizontally;
     this->numberOfBlocksPerWindowVertically =
@@ -38,15 +41,15 @@ HistogramBinning::HistogramBinning(unsigned int windowHeight,
     this->numberOfChannels = numberOfChannels;
 }
 
-HistogramBinning::~HistogramBinning() {
+GeneralizedHistogramBinning::~GeneralizedHistogramBinning() {
 }
 
 
-void HistogramBinning::apply(double *windowImage, double *descriptorVector) {
+void GeneralizedHistogramBinning::apply(double *windowImage, double *descriptorVector) {
     CreateHistogram(windowImage, this->numberOfOrientationBins,
                     this->cellHeightAndWidthInPixels,
                     this->blockHeightAndWidthInCells,
-                    this->enableSignedGradients,
+                    this->enableSignedGradients, this->l2normClipping,
                     this->windowHeight, this->windowWidth,
                     this->numberOfChannels, descriptorVector);
 }
@@ -54,7 +57,7 @@ void HistogramBinning::apply(double *windowImage, double *descriptorVector) {
 void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
                      unsigned int cellHeightAndWidthInPixels,
                      unsigned int blockHeightAndWidthInCells,
-                     bool signedOrUnsignedGradientsBool,
+                     bool signedOrUnsignedGradientsBool, double l2normClipping,
                      unsigned int imageHeight, unsigned int imageWidth,
                      unsigned int numberOfChannels, double *descriptorVector) {
 
@@ -74,12 +77,9 @@ void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
     int hist2 = 2 + (imageWidth / cellHeightAndWidthInPixels);
 
     double binsSize = (1 + (signedOrUnsignedGradients == 1)) *
-                      pi / numberOfOrientationBins;
+                      P / numberOfOrientationBins;
 
-    float *dx = new float[numberOfChannels];
-    float *dy = new float[numberOfChannels];
-    float gradientOrientation, gradientMagnitude, tempMagnitude,
-          Xc, Yc, Oc, blockNorm;
+    float gradientOrientation, gradientMagnitude, Xc, Yc, Oc, blockNorm;
     int x1 = 0, x2 = 0, y1 = 0, y2 = 0, bin1 = 0, descriptorIndex = 0;
     unsigned int x, y, i, j, k, bin2;
 
@@ -90,117 +90,127 @@ void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
                                            (blockHeightAndWidthInCells, vector<double>
                                             (numberOfOrientationBins, 0.0) ) );
 
-    //Calculate gradients (zero padding)
-    for(unsigned int y = 0; y < imageHeight; y++) {
-        for(unsigned int x = 0; x < imageWidth; x++) {
-            if (x == 0) {
-                for (unsigned int z = 0; z < numberOfChannels; z++)
-                    dx[z] = inputImage[y + (x + 1) * imageHeight +
-                                       z * imageHeight * imageWidth];
+    //Calculate quantity to bin
+    if (numberOfChannels == 1) {
+        for(unsigned int y = 0; y < imageHeight; y++) {
+            for(unsigned int x = 0; x < imageWidth; x++) {
+                gradientOrientation = inputImage[y + x * imageHeight];
+
+                // trilinear interpolation
+                bin1 = (gradientOrientation / binsSize) - 1;
+                bin2 = bin1 + 1;
+                x1   = x / cellHeightAndWidthInPixels;
+                x2   = x1 + 1;
+                y1   = y / cellHeightAndWidthInPixels;
+                y2   = y1 + 1;
+
+                Xc = (x1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
+                Yc = (y1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
+                Oc = (bin1 + 1 + 1 - 1.5) * binsSize;
+
+                if (bin2 == numberOfOrientationBins)
+                    bin2 = 0;
+
+                if (bin1 < 0)
+                    bin1 = numberOfOrientationBins - 1;
+
+                h[y1][x1][bin1] = h[y1][x1][bin1] +
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y1][x1][bin2] = h[y1][x1][bin2] +
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
+                h[y2][x1][bin1] = h[y2][x1][bin1] +
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y2][x1][bin2] = h[y2][x1][bin2] +
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
+                h[y1][x2][bin1] = h[y1][x2][bin1] +
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y1][x2][bin2] = h[y1][x2][bin2] +
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
+                h[y2][x2][bin1] = h[y2][x2][bin1] +
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y2][x2][bin2] = h[y2][x2][bin2] +
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
             }
-            else {
-                if (x == imageWidth - 1) {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
-                        dx[z] = -inputImage[y + (x - 1) * imageHeight +
-                                            z * imageHeight * imageWidth];
-                }
-                else {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
-                        dx[z] = inputImage[y + (x + 1) * imageHeight +
-                                           z * imageHeight * imageWidth] -
-                                inputImage[y + (x - 1) * imageHeight +
-                                           z * imageHeight * imageWidth];
-                }
+        }
+    }
+    else {
+        for(unsigned int y = 0; y < imageHeight; y++) {
+            for(unsigned int x = 0; x < imageWidth; x++) {
+                gradientMagnitude = sqrt(inputImage[y + x * imageHeight] * inputImage[y + x * imageHeight] +
+                                         inputImage[y + x * imageHeight + imageHeight * imageWidth] * inputImage[y + x * imageHeight + imageHeight * imageWidth]);
+                gradientOrientation= atan2(inputImage[y + x * imageHeight + imageHeight * imageWidth], inputImage[y + x * imageHeight]);
+
+                if (gradientOrientation < 0)
+                    gradientOrientation += P +
+                                           (signedOrUnsignedGradients == 1) * P;
+
+                // trilinear interpolation
+                bin1 = (gradientOrientation / binsSize) - 1;
+                bin2 = bin1 + 1;
+                x1   = x / cellHeightAndWidthInPixels;
+                x2   = x1 + 1;
+                y1   = y / cellHeightAndWidthInPixels;
+                y2   = y1 + 1;
+
+                Xc = (x1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
+                Yc = (y1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
+                Oc = (bin1 + 1 + 1 - 1.5) * binsSize;
+
+                if (bin2 == numberOfOrientationBins)
+                    bin2 = 0;
+
+                if (bin1 < 0)
+                    bin1 = numberOfOrientationBins - 1;
+
+                h[y1][x1][bin1] = h[y1][x1][bin1] + gradientMagnitude *
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y1][x1][bin2] = h[y1][x1][bin2] + gradientMagnitude *
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
+                h[y2][x1][bin1] = h[y2][x1][bin1] + gradientMagnitude *
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y2][x1][bin2] = h[y2][x1][bin2] + gradientMagnitude *
+                                  (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
+                h[y1][x2][bin1] = h[y1][x2][bin1] + gradientMagnitude *
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y1][x2][bin2] = h[y1][x2][bin2] + gradientMagnitude *
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
+                h[y2][x2][bin1] = h[y2][x2][bin1] + gradientMagnitude *
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (1-((gradientOrientation-Oc)/binsSize));
+                h[y2][x2][bin2] = h[y2][x2][bin2] + gradientMagnitude *
+                                  (((x+1-Xc)/cellHeightAndWidthInPixels)) *
+                                  (((y+1-Yc)/cellHeightAndWidthInPixels)) *
+                                  (((gradientOrientation-Oc)/binsSize));
             }
-
-            if(y == 0) {
-                for (unsigned int z = 0; z < numberOfChannels; z++)
-                    dy[z] = -inputImage[y + 1 + x * imageHeight +
-                                        z * imageHeight * imageWidth];
-            }
-            else {
-                if (y == imageHeight - 1) {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
-                        dy[z] = inputImage[y - 1 + x * imageHeight +
-                                           z * imageHeight * imageWidth];
-                }
-                else {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
-                        dy[z] = -inputImage[y + 1 + x * imageHeight +
-                                            z * imageHeight * imageWidth] +
-                                 inputImage[y - 1 + x * imageHeight +
-                                            z * imageHeight * imageWidth];
-                }
-            }
-
-            // choose dominant channel based on magnitude
-            gradientMagnitude = sqrt(dx[0] * dx[0] + dy[0] * dy[0]);
-            gradientOrientation= atan2(dy[0], dx[0]);
-            if (numberOfChannels > 1) {
-                tempMagnitude = gradientMagnitude;
-                for (unsigned int cli = 1; cli < numberOfChannels; ++cli) {
-                    tempMagnitude= sqrt(dx[cli] * dx[cli] + dy[cli] * dy[cli]);
-                    if (tempMagnitude > gradientMagnitude) {
-                        gradientMagnitude = tempMagnitude;
-                        gradientOrientation = atan2(dy[cli], dx[cli]);
-                    }
-                }
-            }
-
-            if (gradientOrientation < 0)
-                gradientOrientation += pi +
-                                       (signedOrUnsignedGradients == 1) * pi;
-
-            // trilinear interpolation
-            bin1 = (gradientOrientation / binsSize) - 1;
-            bin2 = bin1 + 1;
-            x1   = x / cellHeightAndWidthInPixels;
-            x2   = x1 + 1;
-            y1   = y / cellHeightAndWidthInPixels;
-            y2   = y1 + 1;
-
-            Xc = (x1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
-            Yc = (y1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
-            Oc = (bin1 + 1 + 1 - 1.5) * binsSize;
-
-            if (bin2 == numberOfOrientationBins)
-                bin2 = 0;
-
-            if (bin1 < 0)
-                bin1 = numberOfOrientationBins - 1;
-
-            h[y1][x1][bin1] = h[y1][x1][bin1] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y1][x1][bin2] = h[y1][x1][bin2] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
-            h[y2][x1][bin1] = h[y2][x1][bin1] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y2][x1][bin2] = h[y2][x1][bin2] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
-            h[y1][x2][bin1] = h[y1][x2][bin1] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y1][x2][bin2] = h[y1][x2][bin2] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
-            h[y2][x2][bin1] = h[y2][x2][bin1] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y2][x2][bin2] = h[y2][x2][bin2] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
         }
     }
 
@@ -250,6 +260,4 @@ void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
             }
         }
     }
-    delete[] dx;
-    delete[] dy;
 }
