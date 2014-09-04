@@ -509,6 +509,9 @@ def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
 
     """
     # Parse options
+    if pixels.shape[2] > 2:
+        raise ValueError("GH features only support images with either 1 or 2 "
+                         "channels")
     if mode not in ['dense', 'sparse']:
         raise ValueError("GH features mode must be either dense or sparse")
     if num_bins <= 0:
