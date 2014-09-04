@@ -7,20 +7,21 @@
 
 #define small_val 1e-6 //used to check if interpolation is needed
 
-const double PI = 3.141592653589793238463;
+const double Pi = 3.141592653589793238463;
 
 using namespace std;
 
-class BinaryPattern: public WindowFeature {
+class GeneralizedBinaryPattern: public WindowFeature {
 public:
-	BinaryPattern(unsigned int windowHeight, unsigned int windowWidth,
-	              unsigned int numberOfChannels, unsigned int *radius,
-	              unsigned int *samples,
-	              unsigned int numberOfRadiusSamplesCombinations,
-	              unsigned int *uniqueSamples,
-	              unsigned int *whichMappingTable,
-	              unsigned int numberOfUniqueSamples);
-	virtual ~BinaryPattern();
+	GeneralizedBinaryPattern(unsigned int windowHeight,
+	                         unsigned int windowWidth,
+	                         unsigned int numberOfChannels,
+	                         unsigned int *radius, unsigned int *samples,
+	                         unsigned int numberOfRadiusSamplesCombinations,
+	                         unsigned int *uniqueSamples,
+	                         unsigned int *whichMappingTable,
+	                         unsigned int numberOfUniqueSamples);
+	virtual ~GeneralizedBinaryPattern();
 	void apply(double *windowImage, double *descriptorVector);
 private:
     unsigned int *samples, *whichMappingTable, **mapping_tables;
@@ -37,4 +38,4 @@ void CreateBinaryPattern(double *inputImage, unsigned int *samples,
                          unsigned int imageHeight, unsigned int imageWidth,
                          unsigned int numberOfChannels,
                          double *descriptorVector);
-int power2(int index);
+int power_2(int index);

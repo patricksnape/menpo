@@ -1,14 +1,13 @@
-#include "BinaryPattern.h"
+#include "GeneralizedBinaryPattern.h"
 
-BinaryPattern::BinaryPattern(unsigned int windowHeight,
-                             unsigned int windowWidth,
-                             unsigned int numberOfChannels,
-                             unsigned int *radius, unsigned int *samples,
-                             unsigned int numberOfRadiusSamplesCombinations,
-                             unsigned int mapping_type,
-                             unsigned int *uniqueSamples,
-                             unsigned int *whichMappingTable,
-                             unsigned int numberOfUniqueSamples) {
+GeneralizedBinaryPattern::GeneralizedBinaryPattern(unsigned int windowHeight,
+                                 unsigned int windowWidth,
+                                 unsigned int numberOfChannels,
+                                 unsigned int *radius, unsigned int *samples,
+                                 unsigned int numberOfRadiusSamplesCombinations,
+                                 unsigned int *uniqueSamples,
+                                 unsigned int *whichMappingTable,
+                                 unsigned int numberOfUniqueSamples) {
 	unsigned int descriptorLengthPerWindow =
 	                numberOfRadiusSamplesCombinations * numberOfChannels;
     this->samples = samples;
@@ -23,8 +22,8 @@ BinaryPattern::BinaryPattern(unsigned int windowHeight,
     unsigned int **mapping_tables, i;
     mapping_tables = new unsigned int*[numberOfUniqueSamples];
     for (i = 0; i < numberOfUniqueSamples; i++) {
-	    mapping_tables[i] = new unsigned int[power2(uniqueSamples[i])];
-  	    for (int j = 0; j < power2(uniqueSamples[i]); j++)
+	    mapping_tables[i] = new unsigned int[power_2(uniqueSamples[i])];
+  	    for (int j = 0; j < power_2(uniqueSamples[i]); j++)
        	    mapping_tables[i][j] = j;
 	}
     this->mapping_tables = mapping_tables;
@@ -43,7 +42,7 @@ BinaryPattern::BinaryPattern(unsigned int windowHeight,
     for (i = 0; i < numberOfRadiusSamplesCombinations; i++) {
         samples_x_tables[i] = new double[samples[i]];
         samples_y_tables[i] = new double[samples[i]];
-        angle_step = 2 * PI / samples[i];
+        angle_step = 2 * Pi / samples[i];
         for (s = 0; s < samples[i]; s++) {
             samples_x_tables[i][s] = centre_x + radius[i] * cos(s * angle_step);
             samples_y_tables[i][s] = centre_y - radius[i] * sin(s * angle_step);
@@ -53,7 +52,7 @@ BinaryPattern::BinaryPattern(unsigned int windowHeight,
     this->samples_y_tables = samples_y_tables;
 }
 
-BinaryPattern::~BinaryPattern() {
+GeneralizedBinaryPattern::~GeneralizedBinaryPattern() {
     // empty memory
     delete [] mapping_tables;
     delete [] samples_x_tables;
@@ -61,7 +60,7 @@ BinaryPattern::~BinaryPattern() {
 }
 
 
-void BinaryPattern::apply(double *windowImage, double *descriptorVector) {
+void GeneralizedBinaryPattern::apply(double *windowImage, double *descriptorVector) {
     CreateBinaryPattern(windowImage, this->samples,
                         this->numberOfRadiusSamplesCombinations,
                         this->samples_x_tables, this->samples_y_tables,
@@ -127,7 +126,7 @@ void CreateBinaryPattern(double *inputImage, unsigned int *samples,
 
                 // update the lbp code
                 if (sample_val >= centre_val)
-                    lbp_code += power2(s);
+                    lbp_code += power_2(s);
             }
 
             // store lbp code with mapping
@@ -137,94 +136,11 @@ void CreateBinaryPattern(double *inputImage, unsigned int *samples,
     }
 }
 
-int power2(int index) {
+int power_2(int index) {
     if (index == 0)
         return 1;
     int number = 2;
     for (int i = 1; i < index; i++)
         number = number * 2;
     return number;
-}
-
-void generate_codes_mapping_table(unsigned int *mapping_table,
-                                  unsigned int mapping_type,
-                                  unsigned int n_samples) {
-    int c;
-    unsigned int newMax = 0;
-    if (mapping_type == 1) {
-        // uniform-2
-        newMax = n_samples * (n_samples - 1) + 3;
-        int index = 0, num_trans;
-        for (c = 0; c < power2(n_samples); c++) {
-            // number of 1->0 and 0->1 transitions in a binary string x is
-            // equal to the number of 1-bits in XOR(x, rotate_left(x))
-            num_trans = count_bit_transitions(c, n_samples);
-            if (num_trans <= 2) {
-                mapping_table[c] = index;
-                index += 1;
-            }
-            else
-                mapping_table[c] = newMax - 1;
-        }
-    }
-    else if (mapping_type == 2) {
-        // rotation invariant
-        int rm, r;
-        unsigned int j;
-        int *tmp_map = new int[power2(n_samples)];
-        for (c = 0; c < power2(n_samples); c++)
-            tmp_map[c] = -1;
-        newMax = 0;
-        for (c = 0; c < power2(n_samples); c++) {
-            rm = c;
-            r = c;
-            for (j = 1; j < n_samples; j++) {
-                r = leftRotate(r, n_samples, 1);
-                if (r < rm)
-                    rm = r;
-            }
-            if (tmp_map[rm] < 0) {
-                tmp_map[rm] = newMax;
-                newMax += 1;
-            }
-            mapping_table[c] = tmp_map[rm];
-        }
-    }
-    else if (mapping_type == 3) {
-        // rotation invariant and uniform-2
-        int num_trans;
-        newMax = n_samples + 2;
-        for (c = 0; c < power2(n_samples); c++) {
-            // number of 1->0 and 0->1 transitions in a binary string x is
-            // equal to the number of 1-bits in XOR(x, rotate_left(x))
-            num_trans = count_bit_transitions(c, n_samples);
-            if (num_trans <= 2)
-                mapping_table[c] = count_bits(c);
-            else
-                mapping_table[c] = n_samples + 1;
-        }
-    }
-}
-
-int count_bit_transitions(int a, unsigned int n_samples) {
-    int b = a >> 1; // sign-extending shift properly counts bits at the ends
-    int c = a ^ b;  // xor marks bits that are not the same as their neighbors on the left
-    if (a >= power2(n_samples - 1))
-        return count_bits(c) - 1; // count number of set bits in c
-    else
-        return count_bits(c); // count number of set bits in c
-}
-
-int count_bits(int n) {
-    unsigned int c; // c accumulates the total bits set in v
-    for (c = 0; n; c++)
-        n &= n - 1; // clear the least significant bit set
-    return c;
-}
-
-int leftRotate(int num, unsigned int len_bits, unsigned int move_bits) {
-   // In num<<move_bits, last move_bits bits are 0. To put first 3 bits of num
-   // at last, do bitwise or of num<<move_bits with num >>(len_bits - move_bits)
-   return ((num << move_bits % len_bits) & (power2(len_bits) - 1)) |
-          ((num & (power2(len_bits) - 1)) >> (len_bits - (move_bits % len_bits)));
 }

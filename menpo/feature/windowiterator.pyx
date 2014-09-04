@@ -1,5 +1,5 @@
 # distutils: language = c++
-# distutils: sources = menpo/feature/cpp/ImageWindowIterator.cpp menpo/feature/cpp/WindowFeature.cpp menpo/feature/cpp/HOG.cpp menpo/feature/cpp/LBP.cpp
+# distutils: sources = menpo/feature/cpp/ImageWindowIterator.cpp menpo/feature/cpp/WindowFeature.cpp menpo/feature/cpp/HOG.cpp menpo/feature/cpp/LBP.cpp menpo/feature/cpp/GeneralizedBinaryPattern.cpp
 
 import numpy as np
 cimport numpy as np
@@ -59,6 +59,18 @@ cdef extern from "cpp/LBP.h":
             unsigned int numberOfRadiusSamplesCombinations,
             unsigned int mapping_type, unsigned int *uniqueSamples,
             unsigned int *whichMappingTable, unsigned int numberOfUniqueSamples)
+        void apply(double *windowImage, double *descriptorVector)
+
+cdef extern from "cpp/GeneralizedBinaryPattern.h":
+    cdef cppclass GeneralizedBinaryPattern(WindowFeature):
+        GeneralizedBinaryPattern(unsigned int windowHeight,
+                                 unsigned int windowWidth,
+                                 unsigned int numberOfChannels,
+                                 unsigned int *radius, unsigned int *samples,
+                                 unsigned int numberOfRadiusSamplesCombinations,
+                                 unsigned int *uniqueSamples,
+                                 unsigned int *whichMappingTable,
+                                 unsigned int numberOfUniqueSamples)
         void apply(double *windowImage, double *descriptorVector)
 
 cdef class WindowIterator:
@@ -241,6 +253,68 @@ cdef class WindowIterator:
             print info_str
         self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], lbp)
         del lbp
+        return WindowIteratorResult(np.ascontiguousarray(outputImage),
+                                    np.ascontiguousarray(windowsCenters))
+
+    def GeneralizedBinaryPattern(self, radius, samples, verbose):
+        # find unique samples (thus lbp codes mappings)
+        uniqueSamples, whichMappingTable = np.unique(samples,
+                                                     return_inverse=True)
+        numberOfUniqueSamples = uniqueSamples.size
+        cdef unsigned int[:] cradius = np.ascontiguousarray(radius,
+                                                            dtype=np.uint32)
+        cdef unsigned int[:] csamples = np.ascontiguousarray(samples,
+                                                             dtype=np.uint32)
+        cdef unsigned int[:] cuniqueSamples = np.ascontiguousarray(
+            uniqueSamples, dtype=np.uint32)
+        cdef unsigned int[:] cwhichMappingTable = np.ascontiguousarray(
+            whichMappingTable, dtype=np.uint32)
+        cdef GeneralizedBinaryPattern *gbp = new GeneralizedBinaryPattern(
+                                self.iterator._windowHeight,
+                                self.iterator._windowWidth,
+                                self.iterator._numberOfChannels, &cradius[0],
+                                &csamples[0], radius.size,  &cuniqueSamples[0],
+                                &cwhichMappingTable[0], numberOfUniqueSamples)
+        cdef double[:, :, :] outputImage = np.zeros(
+            [self.iterator._numberOfWindowsVertically,
+             self.iterator._numberOfWindowsHorizontally,
+             gbp.descriptorLengthPerWindow], order='F')
+        cdef int[:, :, :] windowsCenters = np.zeros(
+            [self.iterator._numberOfWindowsVertically,
+             self.iterator._numberOfWindowsHorizontally,
+             2], order='F', dtype=np.int32)
+        if verbose:
+            info_str = "Generalized Binary Pattern features:\n"
+            if radius.size == 1:
+                info_str = "{0}  - 1 combination of radius and " \
+                           "samples.\n".format(info_str)
+                info_str = "{0}  - Radius value: {1}.\n".format(info_str,
+                                                                <int>radius[0])
+                info_str = "{0}  - Samples value: {1}.\n".format(
+                    info_str, <int>samples[0])
+            else:
+                info_str = "{0}  - {1} combinations of radii and " \
+                           "samples.\n".format(info_str, <int>radius.size)
+                info_str = "{0}  - Radii values: [".format(info_str,
+                                                           <int>radius.size)
+                for k in range(radius.size - 1):
+                    info_str = "{0}{1}, ".format(info_str, <int>radius[k])
+                info_str = "{0}{1}].\n".format(info_str, <int>radius[-1])
+                info_str = "{0}  - Samples values: [".format(info_str,
+                                                             <int>samples.size)
+                for k in range(samples.size - 1):
+                    info_str = "{0}{1}, ".format(info_str, <int>samples[k])
+                info_str = "{0}{1}].\n".format(info_str, <int>samples[-1])
+            info_str = "{0}  - Descriptor length per window = " \
+                       "{1} x 1.\n".format(info_str,
+                                           <int>gbp.descriptorLengthPerWindow)
+            info_str = "{}Output image size {}W x {}H x {}.".format(
+                info_str, <int>self.iterator._numberOfWindowsHorizontally,
+                <int>self.iterator._numberOfWindowsVertically,
+                <int>gbp.descriptorLengthPerWindow)
+            print info_str
+        self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], gbp)
+        del gbp
         return WindowIteratorResult(np.ascontiguousarray(outputImage),
                                     np.ascontiguousarray(windowsCenters))
 
