@@ -3,7 +3,7 @@ from .landmark import (LM3Importer, LANImporter, LM2Importer, BNDImporter,
                        LJSONImporter)
 from .landmark_mesh import MeshPTSImporter
 from .mesh import AssimpImporter, WRLImporter, MJSONImporter
-from .image import PILImporter
+from .image import PILImporter, ABSImporter
 from .landmark_image import ImageASFImporter, ImagePTSImporter
 
 
@@ -74,7 +74,8 @@ image_types = {'.bmp': PILImporter,
                '.tiff': PILImporter,
                '.xbm': PILImporter,
                # '.pdf': PILImporter,
-               '.xpm': PILImporter}
+               '.xpm': PILImporter,
+               '.abs': ABSImporter}
 
 all_image_types = {}
 all_image_types.update(image_types)
