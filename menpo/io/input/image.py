@@ -46,10 +46,6 @@ class ABSImporter(Importer):
         super(ABSImporter, self).__init__(filepath)
 
     def build(self):
-        r"""
-        Read in the file and remove the z-min. Triangulate the 2D gridded
-        coordinates to create a valid triangulation.
-        """
         import re
 
         with open(self.filepath, 'r') as f:
@@ -72,4 +68,5 @@ class ABSImporter(Importer):
 
         return MaskedImage(
             np.reshape(data_view, [n_rows, n_cols, 3]),
-            np.reshape(image_data[:, 0], [n_rows, n_cols]).astype(np.bool))
+            np.reshape(image_data[:, 0], [n_rows, n_cols]).astype(np.bool),
+            copy=False)
