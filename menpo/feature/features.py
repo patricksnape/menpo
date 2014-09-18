@@ -1070,7 +1070,7 @@ def S_shape_index(depth_pixels):
 
 
 @ndfeature
-def C_curvature_index(depth_pixels):
+def C_curvedness_index(depth_pixels):
     import numpy as np
     k1 = k1_principal_curvature(depth_pixels)
     k2 = k2_principal_curvature(depth_pixels)
