@@ -949,3 +949,130 @@ def no_op(image_data):
     passed in.
     """
     return image_data.copy()
+
+
+@ndfeature
+def approximate_normals(pixels):
+    import numpy as np
+    g = gradient(pixels)
+
+    normals = np.concatenate([g, -np.ones_like(g[..., 0])[..., None]], axis=-1)
+    mag = np.sqrt(np.sum(normals ** 2, axis=-1))
+    return np.clip(normals / mag[..., None], -1., 1.)
+
+
+@ndfeature
+def depth(pixels):
+    return pixels
+
+
+@ndfeature
+def E_first_coeff(depth_pixels):
+    g = gradient(depth_pixels)
+    # 1 + Zx ^ 2
+    return (1.0 + g[..., 1] ** 2)[..., None]
+
+
+@ndfeature
+def F_first_coeff(depth_pixels):
+    # Zx * Zy
+    g = gradient(depth_pixels)
+    return (g[..., 0] * g[..., 1])[..., None]
+
+
+@ndfeature
+def G_first_coeff(depth_pixels):
+    # 1 + Zy ^ 2
+    g = gradient(depth_pixels)
+    return (1.0 + g[..., 0] ** 2)[..., None]
+
+
+@ndfeature
+def e_second_coeff(depth_pixels):
+    import numpy as np
+    g = gradient(depth_pixels)
+    g2 = gradient(g)
+    norm = np.sqrt(np.sum(1.0 + g ** 2, axis=-1))
+    # Zxx / sqrt(1 + Zx ^ 2 + Zy ^ 2)
+    return np.nan_to_num((g2[..., 2] / norm)[..., None])
+
+
+@ndfeature
+def f_second_coeff(depth_pixels):
+    import numpy as np
+    g = gradient(depth_pixels)
+    g2 = gradient(g)
+    norm = np.sqrt(np.sum(1.0 + g ** 2, axis=-1))
+    # Zxy / sqrt(1 + Zx ^ 2 + Zy ^ 2)
+    return np.nan_to_num((g2[..., 3] / norm)[..., None])
+
+
+@ndfeature
+def g_second_coeff(depth_pixels):
+    import numpy as np
+    g = gradient(depth_pixels)
+    g2 = gradient(g)
+    norm = np.sqrt(np.sum(1.0 + g ** 2, axis=-1))
+    # Zyy / sqrt(1 + Zx ^ 2 + Zy ^ 2)
+    return np.nan_to_num((g2[..., 1] / norm)[..., None])
+
+
+@ndfeature
+def K_gaussian_curvature(depth_pixels):
+    import numpy as np
+    g = gradient(depth_pixels)
+    g2 = gradient(g)
+    denom = np.sum(1.0 + g ** 2, axis=-1)
+    # (Zxx * Zyy - Zxy^2) / (1.0 + Zx^2 + Zy^2)^2
+    K = (g2[..., 2] * g2[..., 1] - g2[..., 3] ** 2) / (denom ** 2)
+    return np.nan_to_num(K[..., None])
+
+
+@ndfeature
+def H_mean_curvature(depth_pixels):
+    import numpy as np
+    g = gradient(depth_pixels)
+    g2 = gradient(g)
+    denom = np.sum(1.0 + g ** 2, axis=-1)
+    y_comp = (1.0 + g[..., 0]**2) * g2[..., 2]
+    xy_comp = 2.0 * g[..., 1] * g[..., 0] * g2[..., 3]
+    x_comp = (1.0 + g[..., 1]**2) * g2[..., 1]
+    # ((1 + Zy^2)Zxx - 2*Zx*Zy*Zxy + (1 + Zx^2)Zyy) / 2(1 + Zx^2 + Zy^2)^(3/2)
+    H = (y_comp - xy_comp + x_comp) / (2.0 * (denom ** (3.0 / 2.0)))
+    return np.nan_to_num(H[..., None])
+
+
+@ndfeature
+def k1_principal_curvature(depth_pixels):
+    import numpy as np
+    # H + sqrt(H^2 - K)
+    H = H_mean_curvature(depth_pixels)
+    K = K_gaussian_curvature(depth_pixels)
+    return np.nan_to_num(H + np.sqrt(H ** 2 - K))
+
+
+@ndfeature
+def k2_principal_curvature(depth_pixels):
+    import numpy as np
+    # H - sqrt(H^2 - K)
+    H = H_mean_curvature(depth_pixels)
+    K = K_gaussian_curvature(depth_pixels)
+    return np.nan_to_num(H - np.sqrt(H ** 2 - K))
+
+
+@ndfeature
+def S_shape_index(depth_pixels):
+    import numpy as np
+    k1 = k1_principal_curvature(depth_pixels)
+    k2 = k2_principal_curvature(depth_pixels)
+    # (1/2) - (1/pi)arctan(k1+k2 / k1-k2)
+    return np.nan_to_num(0.5 - (1.0 / np.pi) * np.arctan2(k1 + k2, k1 - k2))
+
+
+@ndfeature
+def C_curvature_index(depth_pixels):
+    import numpy as np
+    k1 = k1_principal_curvature(depth_pixels)
+    k2 = k2_principal_curvature(depth_pixels)
+    # sqrt((k1^2 + k2^2) / 2.0)
+    return np.nan_to_num(np.sqrt((k1**2 + k2**2) / 2.0))
