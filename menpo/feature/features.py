@@ -1026,7 +1026,7 @@ def K_gaussian_curvature(depth_pixels):
     e = e_second_coeff(depth_pixels)
     f = f_second_coeff(depth_pixels)
     g = g_second_coeff(depth_pixels)
-    return np.nan_to_num((e * g - f ** 2) / (E * G - F ** 2))[..., None]
+    return np.nan_to_num((e * g - f ** 2) / (E * G - F ** 2))
 
 
 @ndfeature
@@ -1050,7 +1050,7 @@ def H_mean_curvature(depth_pixels):
     f = f_second_coeff(depth_pixels)
     g = g_second_coeff(depth_pixels)
     return np.nan_to_num(-(e * G - 2.0 * f * F + g * E) /
-                         (2 * (E * G - F ** 2)))[..., None]
+                         (2 * (E * G - F ** 2)))
 
 
 @ndfeature
