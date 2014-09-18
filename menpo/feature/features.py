@@ -1020,6 +1020,18 @@ def g_second_coeff(depth_pixels):
 @ndfeature
 def K_gaussian_curvature(depth_pixels):
     import numpy as np
+    E = E_first_coeff(depth_pixels)
+    F = F_first_coeff(depth_pixels)
+    G = G_first_coeff(depth_pixels)
+    e = e_second_coeff(depth_pixels)
+    f = f_second_coeff(depth_pixels)
+    g = g_second_coeff(depth_pixels)
+    return np.nan_to_num((e * g - f ** 2) / (E * G - F ** 2))[..., None]
+
+
+@ndfeature
+def K_gaussian_curvature_alt(depth_pixels):
+    import numpy as np
     g = gradient(depth_pixels)
     g2 = gradient(g)
     denom = np.sum(1.0 + g ** 2, axis=-1)
@@ -1030,6 +1042,19 @@ def K_gaussian_curvature(depth_pixels):
 
 @ndfeature
 def H_mean_curvature(depth_pixels):
+    import numpy as np
+    E = E_first_coeff(depth_pixels)
+    F = F_first_coeff(depth_pixels)
+    G = G_first_coeff(depth_pixels)
+    e = e_second_coeff(depth_pixels)
+    f = f_second_coeff(depth_pixels)
+    g = g_second_coeff(depth_pixels)
+    return np.nan_to_num(-(e * G - 2.0 * f * F + g * E) /
+                         (2 * (E * G - F ** 2)))[..., None]
+
+
+@ndfeature
+def H_mean_curvature_alt(depth_pixels):
     import numpy as np
     g = gradient(depth_pixels)
     g2 = gradient(g)
