@@ -415,6 +415,205 @@ def es(image_data, verbose=False):
     #                           'original_image_channels':
     #                               self._image.pixels.shape[2]}
 
+@winitfeature
+def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
+       signed_gradient=True, l2_norm_clip=0.2, window_height=1, window_width=1,
+       window_unit='blocks', window_step_vertical=1, window_step_horizontal=1,
+       window_step_unit='pixels', padding=True, verbose=False):
+    r"""
+    Computes a 2-dimensional Generalized Histogram Binning features image with
+    k number of channels, of size `(M, N, C)` and data type `np.float`.
+
+    Parameters
+    ----------
+    mode : 'dense' or 'sparse'
+        The 'sparse' case refers to the traditional usage of GH, so default
+        parameters values are passed to the ImageWindowIterator.
+        It sets the window height and width equal to block size and the window
+        step horizontal and vertical equal to cell size. In the 'dense' case,
+        the user can change the window_height, window_width, window_unit,
+        window_step_vertical, window_step_horizontal, window_step_unit and
+        padding to completely customize the GH calculation.
+
+    window_height : float
+        Defines the height of the window for the ImageWindowIterator
+        object. The metric unit is defined by window_unit.
+
+    window_width : float
+        Defines the width of the window for the ImageWindowIterator object.
+        The metric unit is defined by window_unit.
+
+    window_unit : 'blocks' or 'pixels'
+        Defines the metric unit of the window_height and window_width
+        parameters for the ImageWindowIterator object.
+
+    window_step_vertical : float
+        Defines the vertical step by which the window is moved, thus it
+        controls the features density. The metric unit is defined by
+        window_step_unit.
+
+    window_step_horizontal : float
+        Defines the horizontal step by which the window is moved, thus it
+        controls the features density. The metric unit is defined by
+        window_step_unit.
+
+    window_step_unit : 'pixels' or 'cells'
+        Defines the metric unit of the window_step_vertical and
+        window_step_horizontal parameters.
+
+    padding : bool
+        Enables/disables padding for the close-to-boundary windows in the
+        ImageWindowIterator object. When padding is enabled,
+        the out-of-boundary pixels are set to zero.
+
+    cell_size : float
+        Defines the cell size in pixels. This value is set to both the width
+        and height of the cell. This option is valid for both algorithms.
+
+    block_size : float
+        Defines the block size in cells. This value is set to both the width
+        and height of the block. This option is valid only for the
+        'dalaltriggs' algorithm.
+
+    num_bins : float
+        Defines the number of orientation histogram bins. This option is
+        valid only for the 'dalaltriggs' algorithm.
+
+    signed_gradient : bool
+        Flag that defines whether we use signed or unsigned gradient angles.
+        This option is valid only for the 'dalaltriggs' algorithm.
+
+    l2_norm_clip : float
+        Defines the clipping value of the gradients' L2-norm. This option is
+        valid only for the 'dalaltriggs' algorithm.
+
+    constrain_landmarks : bool
+        Flag that if enabled, it constrains landmarks that ended up outside of
+        the features image bounds.
+
+    verbose : bool
+        Flag to print HOG related information.
+
+    Raises
+    -------
+    ValueError
+        GH features mode must be either dense or sparse
+    ValueError
+        Number of orientation bins must be > 0
+    ValueError
+        Cell size (in pixels) must be > 0
+    ValueError
+        Block size (in cells) must be > 0
+    ValueError
+        Value for L2-norm clipping must be > 0.0
+    ValueError
+        Window height must be >= block size and <= image height
+    ValueError
+        Window width must be >= block size and <= image width
+    ValueError
+        Window unit must be either pixels or blocks
+    ValueError
+        Horizontal window step must be > 0
+    ValueError
+        Vertical window step must be > 0
+    ValueError
+        Window step unit must be either pixels or cells
+
+    """
+    # Parse options
+    if pixels.shape[2] > 2:
+        raise ValueError("GH features only support images with either 1 or 2 "
+                         "channels")
+    if mode not in ['dense', 'sparse']:
+        raise ValueError("GH features mode must be either dense or sparse")
+    if num_bins <= 0:
+        raise ValueError("Number of orientation bins must be > 0")
+    if cell_size <= 0:
+        raise ValueError("Cell size (in pixels) must be > 0")
+    if block_size <= 0:
+        raise ValueError("Block size (in cells) must be > 0")
+    if l2_norm_clip <= 0.0:
+        raise ValueError("Value for L2-norm clipping must be > 0.0")
+    if mode == 'dense':
+        if window_unit not in ['pixels', 'blocks']:
+            raise ValueError("Window unit must be either pixels or blocks")
+        window_height_temp = window_height
+        window_width_temp = window_width
+        if window_unit == 'blocks':
+            window_height_temp = window_height * block_size * cell_size
+            window_width_temp = window_width * block_size * cell_size
+        if (window_height_temp < block_size * cell_size or
+            window_height_temp > pixels.shape[0]):
+            raise ValueError("Window height must be >= block size and <= "
+                             "image height")
+        if (window_width_temp < block_size*cell_size or
+            window_width_temp > pixels.shape[1]):
+            raise ValueError("Window width must be >= block size and <= "
+                             "image width")
+        if window_step_horizontal <= 0:
+            raise ValueError("Horizontal window step must be > 0")
+        if window_step_vertical <= 0:
+            raise ValueError("Vertical window step must be > 0")
+        if window_step_unit not in ['pixels', 'cells']:
+            raise ValueError("Window step unit must be either pixels or cells")
+
+    # Correct input image_data
+    pixels = np.asfortranarray(pixels)
+    pixels *= 255.
+
+    # Dense case
+    if mode == 'dense':
+        # Iterator parameters
+        if window_unit == 'blocks':
+            block_in_pixels = cell_size * block_size
+            window_height = np.uint32(window_height * block_in_pixels)
+            window_width = np.uint32(window_width * block_in_pixels)
+        if window_step_unit == 'cells':
+            window_step_vertical = np.uint32(window_step_vertical *
+                                             cell_size)
+            window_step_horizontal = np.uint32(window_step_horizontal *
+                                               cell_size)
+        iterator = WindowIterator(pixels, window_height, window_width,
+                                  window_step_horizontal,
+                                  window_step_vertical, padding)
+    # Sparse case
+    else:
+        # Create iterator
+        window_size = cell_size * block_size
+        step = cell_size
+        iterator = WindowIterator(pixels, window_size, window_size, step,
+                                  step, False)
+    # Print iterator's info
+    if verbose:
+        print(iterator)
+    # Compute GH
+    return iterator.GeneralizedHistogramBinning(num_bins, cell_size, block_size,
+                                                signed_gradient, l2_norm_clip,
+                                                verbose)
+
+    # store parameters
+    # gh_image.gh_parameters = {'mode': mode,
+    #                           'num_bins': num_bins,
+    #                           'cell_size': cell_size,
+    #                           'block_size': block_size,
+    #                           'signed_gradient': signed_gradient,
+    #                           'l2_norm_clip': l2_norm_clip,
+    #
+    #                           'window_height': window_height,
+    #                           'window_width': window_width,
+    #                           'window_unit': window_unit,
+    #                           'window_step_vertical': window_step_vertical,
+    #                           'window_step_horizontal':
+    #                               window_step_horizontal,
+    #                           'window_step_unit': window_step_unit,
+    #                           'padding': padding,
+    #
+    #                           'original_image_height':
+    #                               self._image.pixels.shape[0],
+    #                           'original_image_width':
+    #                               self._image.pixels.shape[1],
+    #                           'original_image_channels':
+    #                               self._image.pixels.shape[2]}
 
 @winitfeature
 def lbp(pixels, radius=None, samples=None, mapping_type='riu2',
@@ -575,6 +774,159 @@ def lbp(pixels, radius=None, samples=None, mapping_type='riu2',
     # # store parameters
     # lbp_image.lbp_parameters = {'radius': radius, 'samples': samples,
     #                             'mapping_type': mapping_type,
+    #
+    #                             'window_step_vertical':
+    #                                 window_step_vertical,
+    #                             'window_step_horizontal':
+    #                                 window_step_horizontal,
+    #                             'window_step_unit': window_step_unit,
+    #                             'padding': padding,
+    #
+    #                             'original_image_height':
+    #                                 self._image.pixels.shape[0],
+    #                             'original_image_width':
+    #                                 self._image.pixels.shape[1],
+    #                             'original_image_channels':
+    #                                 self._image.pixels.shape[2]}
+
+@winitfeature
+def gbp(pixels, radius=None, samples=None, window_step_vertical=1,
+        window_step_horizontal=1, window_step_unit='pixels', padding=True,
+        verbose=False, skip_checks=False):
+    r"""
+    Computes a 2-dimensional Generalized Binary Pattern features image with N*C
+    number of channels, where N is the number of channels of the original image
+    and C is the number of radius/samples values combinations that are used in
+    the GBP computation. The binary codes are converted to decimal.
+
+    Parameters
+    ----------
+    pixels :  `ndarray`
+        The pixel data for the image, where the last axis represents the
+        number of channels.
+
+    radius : `int` or `list` of `int`
+        It defines the radius of the circle (or circles) at which the sampling
+        points will be extracted. The radius (or radii) values must be greater
+        than zero. There must be a radius value for each samples value, thus
+        they both need to have the same length.
+
+        Default: None = [1, 2, 3, 4]
+
+    samples : `int` or `list` of `int`
+        It defines the number of sampling points that will be extracted at each
+        circle. The samples value (or values) must be greater than zero. There
+        must be a samples value for each radius value, thus they both need to
+        have the same length.
+
+        Default: None = [8, 8, 8, 8]
+
+    window_step_vertical : float
+        Defines the vertical step by which the window in the
+        ImageWindowIterator is moved, thus it controls the features density.
+        The metric unit is defined by window_step_unit.
+
+    window_step_horizontal : float
+        Defines the horizontal step by which the window in the
+        ImageWindowIterator is moved, thus it controls the features density.
+        The metric unit is defined by window_step_unit.
+
+    window_step_unit : ``'pixels'`` or ``'window'``
+        Defines the metric unit of the window_step_vertical and
+        window_step_horizontal parameters for the ImageWindowIterator object.
+
+    padding : bool
+        Enables/disables padding for the close-to-boundary windows in the
+        ImageWindowIterator object. When padding is enabled, the
+        out-of-boundary pixels are set to zero.
+
+    verbose : `bool`, optional
+        Flag to print LBP related information.
+
+    skip_checks : `bool`, optional
+        If True
+    Raises
+    -------
+    ValueError
+        Radius and samples must both be either integers or lists
+    ValueError
+        Radius and samples must have the same length
+    ValueError
+        Radius must be > 0
+    ValueError
+        Radii must be > 0
+    ValueError
+        Samples must be > 0
+    ValueError
+        Horizontal window step must be > 0
+    ValueError
+        Vertical window step must be > 0
+    ValueError
+        Window step unit must be either pixels or window
+    """
+    if radius is None:
+        radius = range(1, 5)
+    if samples is None:
+        samples = [8]*4
+
+    if not skip_checks:
+        # Check parameters
+        if ((isinstance(radius, int) and isinstance(samples, list)) or
+                (isinstance(radius, list) and isinstance(samples, int))):
+            raise ValueError("Radius and samples must both be either integers "
+                             "or lists")
+        elif isinstance(radius, list) and isinstance(samples, list):
+            if len(radius) != len(samples):
+                raise ValueError("Radius and samples must have the same "
+                                 "length")
+
+        if isinstance(radius, int) and radius < 1:
+            raise ValueError("Radius must be > 0")
+        elif isinstance(radius, list) and sum(r < 1 for r in radius) > 0:
+            raise ValueError("Radii must be > 0")
+
+        if isinstance(samples, int) and samples < 1:
+            raise ValueError("Samples must be > 0")
+        elif isinstance(samples, list) and sum(s < 1 for s in samples) > 0:
+            raise ValueError("Samples must be > 0")
+
+        if window_step_horizontal <= 0:
+            raise ValueError("Horizontal window step must be > 0")
+
+        if window_step_vertical <= 0:
+            raise ValueError("Vertical window step must be > 0")
+
+        if window_step_unit not in ['pixels', 'window']:
+            raise ValueError("Window step unit must be either pixels or "
+                             "window")
+
+    # Correct input image_data
+    pixels = np.asfortranarray(pixels)
+
+    # Parse options
+    radius = np.asfortranarray(radius)
+    samples = np.asfortranarray(samples)
+    window_height = np.uint32(2 * radius.max() + 1)
+    window_width = window_height
+    if window_step_unit == 'window':
+        window_step_vertical = np.uint32(window_step_vertical * window_height)
+        window_step_horizontal = np.uint32(window_step_horizontal *
+                                           window_width)
+
+    # Create iterator object
+    iterator = WindowIterator(pixels, window_height, window_width,
+                              window_step_horizontal, window_step_vertical,
+                              padding)
+
+    # Print iterator's info
+    if verbose:
+        print(iterator)
+
+    # Compute LBP
+    return iterator.GeneralizedBinaryPattern(radius, samples, verbose)
+
+    # # store parameters
+    # gbp_image.gbp_parameters = {'radius': radius, 'samples': samples,
     #
     #                             'window_step_vertical':
     #                                 window_step_vertical,
