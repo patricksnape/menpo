@@ -559,7 +559,6 @@ def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
 
     # Correct input image_data
     pixels = np.asfortranarray(pixels)
-    pixels *= 255.
 
     # Dense case
     if mode == 'dense':
@@ -1101,3 +1100,4 @@ def C_curvedness_index(depth_pixels):
     k2 = k2_principal_curvature(depth_pixels)
     # sqrt((k1^2 + k2^2) / 2.0)
     return np.nan_to_num(np.sqrt((k1**2 + k2**2) / 2.0))
+
