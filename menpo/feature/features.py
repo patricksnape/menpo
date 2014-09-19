@@ -559,6 +559,7 @@ def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
 
     # Correct input image_data
     pixels = np.asfortranarray(pixels)
+    pixels *= 255
 
     # Dense case
     if mode == 'dense':
