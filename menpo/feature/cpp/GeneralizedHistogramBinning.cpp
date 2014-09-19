@@ -7,7 +7,7 @@ GeneralizedHistogramBinning::GeneralizedHistogramBinning(
                                    unsigned int numberOfOrientationBins,
                                    unsigned int cellHeightAndWidthInPixels,
                                    unsigned int blockHeightAndWidthInCells,
-                                   bool enableSignedGradients,
+                                   double range,
                                    double l2normClipping) {
     unsigned int descriptorLengthPerBlock = 0,
                  numberOfBlocksPerWindowVertically = 0,
@@ -26,7 +26,7 @@ GeneralizedHistogramBinning::GeneralizedHistogramBinning(
     this->numberOfOrientationBins = numberOfOrientationBins;
     this->cellHeightAndWidthInPixels = cellHeightAndWidthInPixels;
     this->blockHeightAndWidthInCells = blockHeightAndWidthInCells;
-    this->enableSignedGradients = enableSignedGradients;
+    this->range = range;
     this->l2normClipping = l2normClipping;
     this->numberOfBlocksPerWindowHorizontally =
                     numberOfBlocksPerWindowHorizontally;
@@ -49,7 +49,7 @@ void GeneralizedHistogramBinning::apply(double *windowImage, double *descriptorV
     CreateHistogram(windowImage, this->numberOfOrientationBins,
                     this->cellHeightAndWidthInPixels,
                     this->blockHeightAndWidthInCells,
-                    this->enableSignedGradients, this->l2normClipping,
+                    this->range, this->l2normClipping,
                     this->windowHeight, this->windowWidth,
                     this->numberOfChannels, descriptorVector);
 }
@@ -57,27 +57,19 @@ void GeneralizedHistogramBinning::apply(double *windowImage, double *descriptorV
 void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
                      unsigned int cellHeightAndWidthInPixels,
                      unsigned int blockHeightAndWidthInCells,
-                     bool signedOrUnsignedGradientsBool, double l2normClipping,
+                     double range, double l2normClipping,
                      unsigned int imageHeight, unsigned int imageWidth,
-                     unsigned int numberOfChannels, double *descriptorVector) {
+                     unsigned int numberOfChannels,
+                     double *descriptorVector) {
 
     numberOfOrientationBins = (int)numberOfOrientationBins;
     cellHeightAndWidthInPixels = (double)cellHeightAndWidthInPixels;
     blockHeightAndWidthInCells = (int)blockHeightAndWidthInCells;
 
-    unsigned int signedOrUnsignedGradients;
-
-    if (signedOrUnsignedGradientsBool) {
-        signedOrUnsignedGradients = 1;
-    } else {
-        signedOrUnsignedGradients = 0;
-    }
-
     int hist1 = 2 + (imageHeight / cellHeightAndWidthInPixels);
     int hist2 = 2 + (imageWidth / cellHeightAndWidthInPixels);
 
-    double binsSize = (1 + (signedOrUnsignedGradients == 1)) *
-                      P / numberOfOrientationBins;
+    double binsSize = range / numberOfOrientationBins;
 
     float gradientOrientation, gradientMagnitude, Xc, Yc, Oc, blockNorm;
     int x1 = 0, x2 = 0, y1 = 0, y2 = 0, bin1 = 0, descriptorIndex = 0;
@@ -157,8 +149,7 @@ void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
                 gradientOrientation= atan2(inputImage[y + x * imageHeight + imageHeight * imageWidth], inputImage[y + x * imageHeight]);
 
                 if (gradientOrientation < 0)
-                    gradientOrientation += P +
-                                           (signedOrUnsignedGradients == 1) * P;
+                    gradientOrientation += range / 2.0;
 
                 // trilinear interpolation
                 bin1 = (gradientOrientation / binsSize) - 1;

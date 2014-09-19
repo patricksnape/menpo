@@ -274,7 +274,7 @@ cdef class WindowIterator:
     def GeneralizedHistogramBinning(self, numberOfOrientationBins,
                                     cellHeightAndWidthInPixels,
                                     blockHeightAndWidthInCells,
-                                    enableSignedGradients,
+                                    range,
                                     l2normClipping, verbose):
         cdef GeneralizedHistogramBinning *gh = new GeneralizedHistogramBinning(
                                 self.iterator._windowHeight,
@@ -283,7 +283,7 @@ cdef class WindowIterator:
                                 numberOfOrientationBins,
                                 cellHeightAndWidthInPixels,
                                 blockHeightAndWidthInCells,
-                                enableSignedGradients, l2normClipping)
+                                range, l2normClipping)
         if gh.numberOfBlocksPerWindowVertically == 0 or \
                 gh.numberOfBlocksPerWindowHorizontally == 0:
             raise ValueError("The window-related options are wrong. "
@@ -302,14 +302,8 @@ cdef class WindowIterator:
                        "  - Block is {2}x{2} cells.\n".format(
                 info_str, <int>cellHeightAndWidthInPixels,
                 <int>blockHeightAndWidthInCells)
-            if enableSignedGradients:
-                info_str = "{}  - {} orientation bins and signed " \
-                           "angles.\n".format(info_str,
-                                              <int>numberOfOrientationBins)
-            else:
-                info_str = "{}  - {} orientation bins and unsigned " \
-                           "angles.\n".format(info_str,
-                                              <int>numberOfOrientationBins)
+            info_str = "{}  - {} orientation bins and range is {}.\n".format(
+                info_str, <int>numberOfOrientationBins, range)
             info_str = "{0}  - L2-norm clipped at {1:.1}.\n" \
                        "  - Number of blocks per window = {2}W x {3}H.\n" \
                        "  - Descriptor length per window = " \

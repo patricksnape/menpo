@@ -417,7 +417,7 @@ def es(image_data, verbose=False):
 
 @winitfeature
 def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
-       signed_gradient=True, l2_norm_clip=0.2, window_height=1, window_width=1,
+       range=1.0, l2_norm_clip=0.2, window_height=1, window_width=1,
        window_unit='blocks', window_step_vertical=1, window_step_horizontal=1,
        window_step_unit='pixels', padding=True, verbose=False):
     r"""
@@ -559,7 +559,6 @@ def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
 
     # Correct input image_data
     pixels = np.asfortranarray(pixels)
-    pixels *= 255
 
     # Dense case
     if mode == 'dense':
@@ -588,7 +587,7 @@ def gh(pixels, mode='dense', num_bins=9, cell_size=8, block_size=2,
         print(iterator)
     # Compute GH
     return iterator.GeneralizedHistogramBinning(num_bins, cell_size, block_size,
-                                                signed_gradient, l2_norm_clip,
+                                                range, l2_norm_clip,
                                                 verbose)
 
     # store parameters

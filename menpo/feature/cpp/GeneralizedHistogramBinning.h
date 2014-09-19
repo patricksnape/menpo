@@ -20,7 +20,7 @@ public:
 	                            unsigned int numberOfOrientationBins,
 	                            unsigned int cellHeightAndWidthInPixels,
 	                            unsigned int blockHeightAndWidthInCells,
-	                            bool enableSignedGradients,
+	                            double range,
 	                            double l2normClipping);
 	virtual ~GeneralizedHistogramBinning();
 	void apply(double *windowImage, double *descriptorVector);
@@ -30,13 +30,13 @@ private:
     unsigned int numberOfOrientationBins, cellHeightAndWidthInPixels,
                  blockHeightAndWidthInCells, windowHeight, windowWidth,
                  numberOfChannels;
-    bool enableSignedGradients;
+    double range;
     double l2normClipping;
 };
 
 void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
                      unsigned int cellHeightAndWidthInPixels,
                      unsigned int blockHeightAndWidthInCells,
-                     bool signedOrUnsignedGradientsBool, double l2normClipping,
+                     double range, double l2normClipping,
                      unsigned int imageHeight, unsigned int imageWidth,
                      unsigned int numberOfChannels, double *descriptorVector);
