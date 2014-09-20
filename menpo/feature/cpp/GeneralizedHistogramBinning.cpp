@@ -144,12 +144,13 @@ void CreateHistogram(double *inputImage, unsigned int numberOfOrientationBins,
     else {
         for(unsigned int y = 0; y < imageHeight; y++) {
             for(unsigned int x = 0; x < imageWidth; x++) {
+                binsSize = 2 * P / numberOfOrientationBins;
                 gradientMagnitude = sqrt(inputImage[y + x * imageHeight] * inputImage[y + x * imageHeight] +
                                          inputImage[y + x * imageHeight + imageHeight * imageWidth] * inputImage[y + x * imageHeight + imageHeight * imageWidth]);
-                gradientOrientation= atan2(inputImage[y + x * imageHeight + imageHeight * imageWidth], inputImage[y + x * imageHeight]);
+                gradientOrientation = atan2(inputImage[y + x * imageHeight + imageHeight * imageWidth], inputImage[y + x * imageHeight]);
 
                 if (gradientOrientation < 0)
-                    gradientOrientation += range / 2.0;
+                    gradientOrientation += P;
 
                 // trilinear interpolation
                 bin1 = (gradientOrientation / binsSize) - 1;
