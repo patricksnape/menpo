@@ -268,12 +268,8 @@ void DalalTriggsHOGdescriptor(double *inputImage,
                               Py_ssize_t numberOfChannels,
                               double *descriptorVector) {
     
-    numberOfOrientationBins = (Py_ssize_t)numberOfOrientationBins;
-    cellHeightAndWidthInPixels = (double)cellHeightAndWidthInPixels;
-    blockHeightAndWidthInCells = (Py_ssize_t)blockHeightAndWidthInCells;
-
-    int hist1 = 2 + (imageHeight / cellHeightAndWidthInPixels);
-    int hist2 = 2 + (imageWidth / cellHeightAndWidthInPixels);
+    int hist1 = 2 + (imageHeight / (double)cellHeightAndWidthInPixels);
+    int hist2 = 2 + (imageWidth / (double)cellHeightAndWidthInPixels);
 
     double binsSize = (1 + signedOrUnsignedGradients) * pi / numberOfOrientationBins;
 
