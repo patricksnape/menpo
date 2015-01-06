@@ -282,7 +282,7 @@ void DalalTriggsHOGdescriptor(double *inputImage,
     float gradientOrientation, gradientMagnitude, tempMagnitude, 
           Xc, Yc, Oc, blockNorm;
     int x1 = 0, x2 = 0, y1 = 0, y2 = 0, bin1 = 0, descriptorIndex = 0;
-    unsigned int x, y, i, j, k, bin2;
+    Py_ssize_t x, y, i, j, k, bin2;
 
     vector<vector<vector<double> > > h(hist1, vector<vector<double> >
                                        (hist2, vector<double>
@@ -292,21 +292,21 @@ void DalalTriggsHOGdescriptor(double *inputImage,
                                             (numberOfOrientationBins, 0.0) ) );
 
     //Calculate gradients (zero padding)
-    for(unsigned int y = 0; y < imageHeight; y++) {
-        for(unsigned int x = 0; x < imageWidth; x++) {
+    for(Py_ssize_t y = 0; y < imageHeight; y++) {
+        for(Py_ssize_t x = 0; x < imageWidth; x++) {
             if (x == 0) {
-                for (unsigned int z = 0; z < numberOfChannels; z++)
+                for (Py_ssize_t z = 0; z < numberOfChannels; z++)
                     dx[z] = inputImage[y + (x + 1) * imageHeight +
                                        z * imageHeight * imageWidth];
             }
             else {
                 if (x == imageWidth - 1) {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
+                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
                         dx[z] = -inputImage[y + (x - 1) * imageHeight +
                                             z * imageHeight * imageWidth];
                 }
                 else {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
+                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
                         dx[z] = inputImage[y + (x + 1) * imageHeight +
                                            z * imageHeight * imageWidth] -
                                 inputImage[y + (x - 1) * imageHeight +
@@ -315,18 +315,18 @@ void DalalTriggsHOGdescriptor(double *inputImage,
             }
 
             if(y == 0) {
-                for (unsigned int z = 0; z < numberOfChannels; z++)
+                for (Py_ssize_t z = 0; z < numberOfChannels; z++)
                     dy[z] = -inputImage[y + 1 + x * imageHeight +
                                         z * imageHeight * imageWidth];
             }
             else {
                 if (y == imageHeight - 1) {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
+                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
                         dy[z] = inputImage[y - 1 + x * imageHeight +
                                            z * imageHeight * imageWidth];
                 }
                 else {
-                    for (unsigned int z = 0; z < numberOfChannels; z++)
+                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
                         dy[z] = -inputImage[y + 1 + x * imageHeight +
                                             z * imageHeight * imageWidth] +
                                  inputImage[y - 1 + x * imageHeight +
@@ -339,7 +339,7 @@ void DalalTriggsHOGdescriptor(double *inputImage,
             gradientOrientation= atan2(dy[0], dx[0]);
             if (numberOfChannels > 1) {
                 tempMagnitude = gradientMagnitude;
-                for (unsigned int cli = 1; cli < numberOfChannels; ++cli) {
+                for (Py_ssize_t cli = 1; cli < numberOfChannels; ++cli) {
                     tempMagnitude= sqrt(dx[cli] * dx[cli] + dy[cli] * dy[cli]);
                     if (tempMagnitude > gradientMagnitude) {
                         gradientMagnitude = tempMagnitude;
