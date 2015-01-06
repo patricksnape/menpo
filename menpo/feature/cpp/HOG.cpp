@@ -75,40 +75,35 @@ void HOG::apply(double *windowImage, double *descriptorVector) {
 
 // ZHU & RAMANAN: Face Detection, Pose Estimation and Landmark Localization
 //                in the Wild
-void ZhuRamananHOGdescriptor(double *inputImage,
+void ZhuRamananHOGdescriptor(double* inputImage,
                              Py_ssize_t cellHeightAndWidthInPixels,
                              Py_ssize_t imageHeight,
                              Py_ssize_t imageWidth,
                              Py_ssize_t numberOfChannels,
                              double *descriptorMatrix) {
     // unit vectors used to compute gradient orientation
-    double uu[9] = {1.0000, 0.9397, 0.7660, 0.500, 0.1736, -0.1736, -0.5000,
-                    -0.7660, -0.9397};
-    double vv[9] = {0.0000, 0.3420, 0.6428, 0.8660, 0.9848, 0.9848, 0.8660,
-                    0.6428, 0.3420};
-    Py_ssize_t x, y, o;
+    static const double uu[9] = {1.0000, 0.9397, 0.7660, 0.500, 0.1736, -0.1736,
+                                 -0.5000, -0.7660, -0.9397};
+    static const double vv[9] = {0.0000, 0.3420, 0.6428, 0.8660, 0.9848, 0.9848,
+                                 0.8660, 0.6428, 0.3420};
 
     // memory for caching orientation histograms & their norms
-    Py_ssize_t blocks[2];
-    blocks[0] = (Py_ssize_t)round((double)imageHeight /
-                                  (double)cellHeightAndWidthInPixels);
-    blocks[1] = (Py_ssize_t)round((double)imageWidth /
-                                  (double)cellHeightAndWidthInPixels);
-    double *hist = (double *)calloc(blocks[0] * blocks[1] * 18, sizeof(double));
-    double *norm = (double *)calloc(blocks[0] * blocks[1], sizeof(double));
+    const Py_ssize_t blocks[2] = {(Py_ssize_t)round((double)imageHeight / (double)cellHeightAndWidthInPixels),
+                                  (Py_ssize_t)round((double)imageWidth / (double)cellHeightAndWidthInPixels)};
+
+    double* hist = (double *)calloc(blocks[0] * blocks[1] * 18, sizeof(double));
+    double* norm = (double *)calloc(blocks[0] * blocks[1], sizeof(double));
 
     // memory for HOG features
-    Py_ssize_t out[3];
-    out[0] = inline_max(blocks[0] - 2, 0);
-    out[1] = inline_max(blocks[1] - 2, 0);
-    out[2] = 31;  // 27 + 4
+    const Py_ssize_t out[3] = {inline_max(blocks[0] - 2, 0),
+                               inline_max(blocks[1] - 2, 0),
+                               31};  // 27 + 4
 
-    Py_ssize_t visible[2];
-    visible[0] = blocks[0] * cellHeightAndWidthInPixels;
-    visible[1] = blocks[1] * cellHeightAndWidthInPixels;
+    const Py_ssize_t visible[2] = {blocks[0] * cellHeightAndWidthInPixels,
+                                   blocks[1] * cellHeightAndWidthInPixels};
 
-    for (x = 1; x < visible[1] - 1; x++) {
-        for (y = 1; y < visible[0] - 1; y++) {
+    for (Py_ssize_t x = 1; x < visible[1] - 1; x++) {
+        for (Py_ssize_t y = 1; y < visible[0] - 1; y++) {
             // compute gradient
             // first channel
             double *s = inputImage + inline_min(x, imageWidth-2) * imageHeight +
@@ -133,7 +128,7 @@ void ZhuRamananHOGdescriptor(double *inputImage,
             // snap to one of 18 orientations
             double best_dot = 0;
             Py_ssize_t best_o = 0;
-            for (o = 0; o < 9; o++) {
+            for (Py_ssize_t o = 0; o < 9; o++) {
                 double dot = uu[o] * dx + vv[o] * dy;
                 if (dot > best_dot) {
                     best_dot = dot;
@@ -190,8 +185,8 @@ void ZhuRamananHOGdescriptor(double *inputImage,
     }
 
     // compute features
-    for (x = 0; x < out[1]; x++) {
-        for (y = 0; y < out[0]; y++) {
+    for (Py_ssize_t x = 0; x < out[1]; x++) {
+        for (Py_ssize_t y = 0; y < out[0]; y++) {
             double *dst = descriptorMatrix + x * out[0] + y;
             double *src, *p, n1, n2, n3, n4;
 
