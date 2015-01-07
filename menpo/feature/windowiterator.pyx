@@ -1,5 +1,5 @@
 # distutils: language = c++
-# distutils: sources = menpo/feature/cpp/ImageWindowIterator.cpp menpo/feature/cpp/WindowFeature.cpp menpo/feature/cpp/HOG.cpp menpo/feature/cpp/LBP.cpp
+# distutils: sources = menpo/feature/cpp/ImageWindowIterator.cpp menpo/feature/cpp/WindowFeature.cpp menpo/feature/cpp/HOG.cpp
 
 import numpy as np
 cimport numpy as np
@@ -7,67 +7,74 @@ from libcpp cimport bool
 from libcpp.string cimport string
 from collections import namedtuple
 
-WindowIteratorResult = namedtuple('WindowInteratorResult', ('pixels',
-                                                            'centres'))
+WindowIteratorResult = namedtuple('WindowInteratorResult',
+                                  ('pixels', 'centres'))
 
 cdef extern from "math.h":
     double ceil(double)
+    float ceil(float)
     double round(double)
+    float round(float)
     double floor(double)
+    float floor(float)
 
 cdef extern from "cpp/ImageWindowIterator.h":
     cdef cppclass ImageWindowIterator:
-        ImageWindowIterator(double *image, unsigned int imageHeight,
-                            unsigned int imageWidth,
-                            unsigned int numberOfChannels,
-                            unsigned int windowHeight,
-                            unsigned int windowWidth,
-                            unsigned int windowStepHorizontal,
-                            unsigned int windowStepVertical,
+        ImageWindowIterator(double *image,
+                            Py_ssize_t imageHeight,
+                            Py_ssize_t imageWidth,
+                            Py_ssize_t numberOfChannels,
+                            Py_ssize_t windowHeight,
+                            Py_ssize_t windowWidth,
+                            Py_ssize_t windowStepHorizontal,
+                            Py_ssize_t windowStepVertical,
                             bool enablePadding)
-        void apply(double *outputImage, int *windowsCenters,
+        void apply(double *outputImage, Py_ssize_t *windowsCenters,
                    WindowFeature *windowFeature)
-        unsigned int _numberOfWindowsHorizontally, \
-            _numberOfWindowsVertically, _numberOfWindows, _imageWidth, \
-            _imageHeight, _numberOfChannels, _windowHeight, _windowWidth, \
-            _windowStepHorizontal, _windowStepVertical
-        bool _enablePadding
+        Py_ssize_t numberOfWindowsHorizontally, \
+                   numberOfWindowsVertically, numberOfWindows, imageWidth, \
+                   imageHeight, numberOfChannels, windowHeight, \
+                   windowWidth, windowStepHorizontal, windowStepVertical
+        bool enablePadding
 
 cdef extern from "cpp/WindowFeature.h":
     cdef cppclass WindowFeature:
         void apply(double *windowImage, double *descriptorVector)
-        unsigned int descriptorLengthPerWindow
+        Py_ssize_t descriptorLengthPerWindow
 
 cdef extern from "cpp/HOG.h":
     cdef cppclass HOG(WindowFeature):
-        HOG(unsigned int windowHeight, unsigned int windowWidth,
-            unsigned int numberOfChannels, unsigned int method,
-            unsigned int numberOfOrientationBins,
-            unsigned int cellHeightAndWidthInPixels,
-            unsigned int blockHeightAndWidthInCells,
-            bool enableSignedGradients, double l2normClipping)
+        HOG(Py_ssize_t windowHeight,
+            Py_ssize_t windowWidth,
+            Py_ssize_t numberOfChannels,
+            unsigned int method,
+            Py_ssize_t numberOfOrientationBins,
+            Py_ssize_t cellHeightAndWidthInPixels,
+            Py_ssize_t blockHeightAndWidthInCells,
+            bool enableSignedGradients,
+            double l2normClipping)
         void apply(double *windowImage, double *descriptorVector)
-        unsigned int descriptorLengthPerBlock, \
-            numberOfBlocksPerWindowHorizontally, \
-            numberOfBlocksPerWindowVertically
+        long long descriptorLengthPerBlock, \
+                  numberOfBlocksPerWindowHorizontally, \
+                  numberOfBlocksPerWindowVertically
 
-cdef extern from "cpp/LBP.h":
-    cdef cppclass LBP(WindowFeature):
-        LBP(unsigned int windowHeight, unsigned int windowWidth,
-            unsigned int numberOfChannels, unsigned int *radius,
-            unsigned int *samples,
-            unsigned int numberOfRadiusSamplesCombinations,
-            unsigned int mapping_type, unsigned int *uniqueSamples,
-            unsigned int *whichMappingTable, unsigned int numberOfUniqueSamples)
-        void apply(double *windowImage, double *descriptorVector)
+# cdef extern from "cpp/LBP.h":
+#     cdef cppclass LBP(WindowFeature):
+#         LBP(unsigned int windowHeight, unsigned int windowWidth,
+#             unsigned int numberOfChannels, unsigned int *radius,
+#             unsigned int *samples,
+#             unsigned int numberOfRadiusSamplesCombinations,
+#             unsigned int mapping_type, unsigned int *uniqueSamples,
+#             unsigned int *whichMappingTable, unsigned int numberOfUniqueSamples)
+#         void apply(double *windowImage, double *descriptorVector)
 
 cdef class WindowIterator:
     cdef ImageWindowIterator* iterator
 
     def __cinit__(self, np.ndarray[np.float64_t, ndim=3] image,
-                  unsigned int windowHeight, unsigned int windowWidth,
-                  unsigned int windowStepHorizontal,
-                  unsigned int windowStepVertical, bool enablePadding):
+                  Py_ssize_t windowHeight, Py_ssize_t windowWidth,
+                  Py_ssize_t windowStepHorizontal,
+                  Py_ssize_t windowStepVertical, bool enablePadding):
         cdef np.ndarray[np.float64_t, ndim=3, mode='fortran'] image_f = \
             np.require(image, requirements='F')
         self.iterator = new ImageWindowIterator(&image_f[0, 0, 0],
@@ -77,8 +84,8 @@ cdef class WindowIterator:
                                                 windowStepHorizontal,
                                                 windowStepVertical,
                                                 enablePadding)
-        if self.iterator._numberOfWindowsHorizontally == 0 or \
-                        self.iterator._numberOfWindowsVertically == 0:
+        if self.iterator.numberOfWindowsHorizontally == 0 or \
+                        self.iterator.numberOfWindowsVertically == 0:
             raise ValueError("The window-related options are wrong. "
                              "The number of windows is 0.")
 
@@ -86,28 +93,28 @@ cdef class WindowIterator:
         info_str = "Window Iterator:\n" \
                    "  - Input image is {}W x {}H with {} channels.\n" \
                    "  - Window of size {}W x {}H and step ({}W,{}H).\n"\
-            .format(<int>self.iterator._imageWidth,
-                    <int>self.iterator._imageHeight,
-                    <int>self.iterator._numberOfChannels,
-                    <int>self.iterator._windowWidth,
-                    <int>self.iterator._windowHeight,
-                    <int>self.iterator._windowStepHorizontal,
-                    <int>self.iterator._windowStepVertical)
-        if self.iterator._enablePadding:
+            .format(self.iterator.imageWidth,
+                    self.iterator.imageHeight,
+                    self.iterator.numberOfChannels,
+                    self.iterator.windowWidth,
+                    self.iterator.windowHeight,
+                    self.iterator.windowStepHorizontal,
+                    self.iterator.windowStepVertical)
+        if self.iterator.enablePadding:
             info_str = "{}  - Padding is enabled.\n".format(info_str)
         else:
             info_str = "{}  - Padding is disabled.\n".format(info_str)
         info_str = "{}  - Number of windows is {}W x {}H."\
-            .format(info_str, <int>self.iterator._numberOfWindowsHorizontally,
-                    <int>self.iterator._numberOfWindowsVertically)
+            .format(info_str, self.iterator.numberOfWindowsHorizontally,
+                    self.iterator.numberOfWindowsVertically)
         return info_str
 
     def HOG(self, method, numberOfOrientationBins, cellHeightAndWidthInPixels,
             blockHeightAndWidthInCells, enableSignedGradients,
             l2normClipping, verbose):
-        cdef HOG *hog = new HOG(self.iterator._windowHeight,
-                                self.iterator._windowWidth,
-                                self.iterator._numberOfChannels, method,
+        cdef HOG *hog = new HOG(self.iterator.windowHeight,
+                                self.iterator.windowWidth,
+                                self.iterator.numberOfChannels, method,
                                 numberOfOrientationBins,
                                 cellHeightAndWidthInPixels,
                                 blockHeightAndWidthInCells,
@@ -117,38 +124,38 @@ cdef class WindowIterator:
             raise ValueError("The window-related options are wrong. "
                              "The number of blocks per window is 0.")
         cdef double[:, :, :] outputImage = np.zeros(
-            [self.iterator._numberOfWindowsVertically,
-             self.iterator._numberOfWindowsHorizontally,
+            [self.iterator.numberOfWindowsVertically,
+             self.iterator.numberOfWindowsHorizontally,
              hog.descriptorLengthPerWindow], order='F')
-        cdef int[:, :, :] windowsCenters = np.zeros(
-            [self.iterator._numberOfWindowsVertically,
-             self.iterator._numberOfWindowsHorizontally,
-             2], order='F', dtype=np.int32)
+        cdef Py_ssize_t[:, :, :] windowsCenters = np.zeros(
+            [self.iterator.numberOfWindowsVertically,
+             self.iterator.numberOfWindowsHorizontally,
+             2], order='F', dtype=np.intp)
         if verbose:
             info_str = "HOG features:\n"
             if method == 1:
                 info_str = "{0}  - Algorithm of Dalal & Triggs.\n" \
                            "  - Cell is {1}x{1} pixels.\n" \
                            "  - Block is {2}x{2} cells.\n".format(
-                    info_str, <int>cellHeightAndWidthInPixels,
-                    <int>blockHeightAndWidthInCells)
+                    info_str, cellHeightAndWidthInPixels,
+                    blockHeightAndWidthInCells)
                 if enableSignedGradients:
                     info_str = "{}  - {} orientation bins and signed " \
                                "angles.\n".format(info_str,
-                                                  <int>numberOfOrientationBins)
+                                                  numberOfOrientationBins)
                 else:
                     info_str = "{}  - {} orientation bins and unsigned " \
                                "angles.\n".format(info_str,
-                                                  <int>numberOfOrientationBins)
+                                                  numberOfOrientationBins)
                 info_str = "{0}  - L2-norm clipped at {1:.1}.\n" \
                            "  - Number of blocks per window = {2}W x {3}H.\n" \
                            "  - Descriptor length per window = " \
                            "{2}W x {3}H x {4} = {5} x 1.\n".format(
                     info_str, l2normClipping,
-                    <int>hog.numberOfBlocksPerWindowHorizontally,
-                    <int>hog.numberOfBlocksPerWindowVertically,
-                    <int>hog.descriptorLengthPerBlock,
-                    <int>hog.descriptorLengthPerWindow)
+                    hog.numberOfBlocksPerWindowHorizontally,
+                    hog.numberOfBlocksPerWindowVertically,
+                    hog.descriptorLengthPerBlock,
+                    hog.descriptorLengthPerWindow)
             else:
                 info_str = "{0}  - Algorithm of Zhu & Ramanan.\n" \
                            "  - Cell is {1}x{1} pixels.\n" \
@@ -156,93 +163,93 @@ cdef class WindowIterator:
                            "  - Number of blocks per window = {3}W x {4}H.\n" \
                            "  - Descriptor length per window = " \
                            "{3}W x {4}H x {5} = {6} x 1.\n".format(
-                    info_str, <int>cellHeightAndWidthInPixels,
-                    <int>blockHeightAndWidthInCells,
-                    <int>hog.numberOfBlocksPerWindowHorizontally,
-                    <int>hog.numberOfBlocksPerWindowVertically,
-                    <int>hog.descriptorLengthPerBlock,
-                    <int>hog.descriptorLengthPerWindow)
+                    info_str, cellHeightAndWidthInPixels,
+                    blockHeightAndWidthInCells,
+                    hog.numberOfBlocksPerWindowHorizontally,
+                    hog.numberOfBlocksPerWindowVertically,
+                    hog.descriptorLengthPerBlock,
+                    hog.descriptorLengthPerWindow)
             info_str = "{}Output image size {}W x {}H x {}.".format(
-                info_str, <int>self.iterator._numberOfWindowsHorizontally,
-                <int>self.iterator._numberOfWindowsVertically,
-                <int>hog.descriptorLengthPerWindow)
-            print info_str
+                info_str, self.iterator.numberOfWindowsHorizontally,
+                self.iterator.numberOfWindowsVertically,
+                hog.descriptorLengthPerWindow)
+            print(info_str)
         self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], hog)
         del hog
         return WindowIteratorResult(np.ascontiguousarray(outputImage),
                                     np.ascontiguousarray(windowsCenters))
 
-    def LBP(self, radius, samples, mapping_type, verbose):
-        # find unique samples (thus lbp codes mappings)
-        uniqueSamples, whichMappingTable = np.unique(samples,
-                                                     return_inverse=True)
-        numberOfUniqueSamples = uniqueSamples.size
-        cdef unsigned int[:] cradius = np.ascontiguousarray(radius,
-                                                            dtype=np.uint32)
-        cdef unsigned int[:] csamples = np.ascontiguousarray(samples,
-                                                             dtype=np.uint32)
-        cdef unsigned int[:] cuniqueSamples = np.ascontiguousarray(
-            uniqueSamples, dtype=np.uint32)
-        cdef unsigned int[:] cwhichMappingTable = np.ascontiguousarray(
-            whichMappingTable, dtype=np.uint32)
-        cdef LBP *lbp = new LBP(self.iterator._windowHeight,
-                                self.iterator._windowWidth,
-                                self.iterator._numberOfChannels, &cradius[0],
-                                &csamples[0], radius.size, mapping_type,
-                                &cuniqueSamples[0], &cwhichMappingTable[0],
-                                numberOfUniqueSamples)
-        cdef double[:, :, :] outputImage = np.zeros(
-            [self.iterator._numberOfWindowsVertically,
-             self.iterator._numberOfWindowsHorizontally,
-             lbp.descriptorLengthPerWindow], order='F')
-        cdef int[:, :, :] windowsCenters = np.zeros(
-            [self.iterator._numberOfWindowsVertically,
-             self.iterator._numberOfWindowsHorizontally,
-             2], order='F', dtype=np.int32)
-        if verbose:
-            info_str = "LBP features:\n"
-            if radius.size == 1:
-                info_str = "{0}  - 1 combination of radius and " \
-                           "samples.\n".format(info_str)
-                info_str = "{0}  - Radius value: {1}.\n".format(info_str,
-                                                                <int>radius[0])
-                info_str = "{0}  - Samples value: {1}.\n".format(
-                    info_str, <int>samples[0])
-            else:
-                info_str = "{0}  - {1} combinations of radii and " \
-                           "samples.\n".format(info_str, <int>radius.size)
-                info_str = "{0}  - Radii values: [".format(info_str,
-                                                           <int>radius.size)
-                for k in range(radius.size - 1):
-                    info_str = "{0}{1}, ".format(info_str, <int>radius[k])
-                info_str = "{0}{1}].\n".format(info_str, <int>radius[-1])
-                info_str = "{0}  - Samples values: [".format(info_str,
-                                                             <int>samples.size)
-                for k in range(samples.size - 1):
-                    info_str = "{0}{1}, ".format(info_str, <int>samples[k])
-                info_str = "{0}{1}].\n".format(info_str, <int>samples[-1])
-            if mapping_type == 1:
-                info_str = "{0}  - Uniform-2 codes mapping.\n".format(info_str)
-            elif mapping_type == 2:
-                info_str = "{0}  - Rotation-Invariant codes mapping.\n".format(
-                    info_str)
-            elif mapping_type == 3:
-                info_str = "{0}  - Uniform-2 and Rotation-Invariant codes " \
-                           "mapping.\n".format(info_str)
-            elif mapping_type == 0:
-                info_str = "{0}  - No codes mapping used.\n".format(info_str)
-            info_str = "{0}  - Descriptor length per window = " \
-                       "{1} x 1.\n".format(info_str,
-                                           <int>lbp.descriptorLengthPerWindow)
-            info_str = "{}Output image size {}W x {}H x {}.".format(
-                info_str, <int>self.iterator._numberOfWindowsHorizontally,
-                <int>self.iterator._numberOfWindowsVertically,
-                <int>lbp.descriptorLengthPerWindow)
-            print info_str
-        self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], lbp)
-        del lbp
-        return WindowIteratorResult(np.ascontiguousarray(outputImage),
-                                    np.ascontiguousarray(windowsCenters))
+    # def LBP(self, radius, samples, mapping_type, verbose):
+    #     # find unique samples (thus lbp codes mappings)
+    #     uniqueSamples, whichMappingTable = np.unique(samples,
+    #                                                  return_inverse=True)
+    #     numberOfUniqueSamples = uniqueSamples.size
+    #     cdef unsigned int[:] cradius = np.ascontiguousarray(radius,
+    #                                                         dtype=np.uint32)
+    #     cdef unsigned int[:] csamples = np.ascontiguousarray(samples,
+    #                                                          dtype=np.uint32)
+    #     cdef unsigned int[:] cuniqueSamples = np.ascontiguousarray(
+    #         uniqueSamples, dtype=np.uint32)
+    #     cdef unsigned int[:] cwhichMappingTable = np.ascontiguousarray(
+    #         whichMappingTable, dtype=np.uint32)
+    #     cdef LBP *lbp = new LBP(self.iterator._windowHeight,
+    #                             self.iterator._windowWidth,
+    #                             self.iterator._numberOfChannels, &cradius[0],
+    #                             &csamples[0], radius.size, mapping_type,
+    #                             &cuniqueSamples[0], &cwhichMappingTable[0],
+    #                             numberOfUniqueSamples)
+    #     cdef double[:, :, :] outputImage = np.zeros(
+    #         [self.iterator._numberOfWindowsVertically,
+    #          self.iterator._numberOfWindowsHorizontally,
+    #          lbp.descriptorLengthPerWindow], order='F')
+    #     cdef int[:, :, :] windowsCenters = np.zeros(
+    #         [self.iterator._numberOfWindowsVertically,
+    #          self.iterator._numberOfWindowsHorizontally,
+    #          2], order='F', dtype=np.int32)
+    #     if verbose:
+    #         info_str = "LBP features:\n"
+    #         if radius.size == 1:
+    #             info_str = "{0}  - 1 combination of radius and " \
+    #                        "samples.\n".format(info_str)
+    #             info_str = "{0}  - Radius value: {1}.\n".format(info_str,
+    #                                                             <int>radius[0])
+    #             info_str = "{0}  - Samples value: {1}.\n".format(
+    #                 info_str, <int>samples[0])
+    #         else:
+    #             info_str = "{0}  - {1} combinations of radii and " \
+    #                        "samples.\n".format(info_str, <int>radius.size)
+    #             info_str = "{0}  - Radii values: [".format(info_str,
+    #                                                        <int>radius.size)
+    #             for k in range(radius.size - 1):
+    #                 info_str = "{0}{1}, ".format(info_str, <int>radius[k])
+    #             info_str = "{0}{1}].\n".format(info_str, <int>radius[-1])
+    #             info_str = "{0}  - Samples values: [".format(info_str,
+    #                                                          <int>samples.size)
+    #             for k in range(samples.size - 1):
+    #                 info_str = "{0}{1}, ".format(info_str, <int>samples[k])
+    #             info_str = "{0}{1}].\n".format(info_str, <int>samples[-1])
+    #         if mapping_type == 1:
+    #             info_str = "{0}  - Uniform-2 codes mapping.\n".format(info_str)
+    #         elif mapping_type == 2:
+    #             info_str = "{0}  - Rotation-Invariant codes mapping.\n".format(
+    #                 info_str)
+    #         elif mapping_type == 3:
+    #             info_str = "{0}  - Uniform-2 and Rotation-Invariant codes " \
+    #                        "mapping.\n".format(info_str)
+    #         elif mapping_type == 0:
+    #             info_str = "{0}  - No codes mapping used.\n".format(info_str)
+    #         info_str = "{0}  - Descriptor length per window = " \
+    #                    "{1} x 1.\n".format(info_str,
+    #                                        <int>lbp.descriptorLengthPerWindow)
+    #         info_str = "{}Output image size {}W x {}H x {}.".format(
+    #             info_str, <int>self.iterator._numberOfWindowsHorizontally,
+    #             <int>self.iterator._numberOfWindowsVertically,
+    #             <int>lbp.descriptorLengthPerWindow)
+    #         print info_str
+    #     self.iterator.apply(&outputImage[0,0,0], &windowsCenters[0,0,0], lbp)
+    #     del lbp
+    #     return WindowIteratorResult(np.ascontiguousarray(outputImage),
+    #                                 np.ascontiguousarray(windowsCenters))
 
 def _lbp_mapping_table(n_samples, mapping_type='riu2'):
     r"""
@@ -275,7 +282,7 @@ def _lbp_mapping_table(n_samples, mapping_type='riu2'):
         for c in range(2**n_samples):
             # number of 1->0 and 0->1 transitions in a binary string x is equal
             # to the number of 1-bits in XOR(x, rotate_left(x))
-            num_trans = bin(c ^ circural_rotation_left(c, 1, n_samples)).\
+            num_trans = bin(c ^ circular_rotation_left(c, 1, n_samples)).\
                 count('1')
             if num_trans <= 2:
                 table[c] = index
@@ -290,7 +297,7 @@ def _lbp_mapping_table(n_samples, mapping_type='riu2'):
             rm = c
             r = c
             for j in range(1, n_samples):
-                r = circural_rotation_left(r, 1, n_samples)
+                r = circular_rotation_left(r, 1, n_samples)
                 rm = min(rm, r)
             if tmp_map[rm, 0] < 0:
                 tmp_map[rm, 0] = new_max
@@ -302,7 +309,7 @@ def _lbp_mapping_table(n_samples, mapping_type='riu2'):
         for c in range(2**n_samples):
             # number of 1->0 and 0->1 transitions in a binary string x is equal
             # to the number of 1-bits in XOR(x, rotate_left(x))
-            num_trans = bin(c ^ circural_rotation_left(c, 1, n_samples)).\
+            num_trans = bin(c ^ circular_rotation_left(c, 1, n_samples)).\
                 count('1')
             if num_trans <= 2:
                 table[c] = bin(c).count('1')
@@ -316,7 +323,7 @@ def _lbp_mapping_table(n_samples, mapping_type='riu2'):
     return table, new_max
 
 
-def circural_rotation_left(val, rot_bits, max_bits):
+def circular_rotation_left(val, rot_bits, max_bits):
     r"""
     Applies a circular left shift of 'rot_bits' bits on the given number 'num'
     keeping 'max_bits' number of bits.
@@ -335,6 +342,6 @@ def circural_rotation_left(val, rot_bits, max_bits):
            ((val & (2**max_bits - 1)) >> (max_bits - (rot_bits % max_bits)))
 
 
-def circural_rotation_right(val, rot_bits, max_bits):
+def circular_rotation_right(val, rot_bits, max_bits):
     return ((val & (2**max_bits - 1)) >> rot_bits % max_bits) | \
            (val << (max_bits - (rot_bits % max_bits)) & (2**max_bits - 1))

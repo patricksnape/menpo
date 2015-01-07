@@ -3,16 +3,23 @@
 
 class ImageWindowIterator {
 public:
-	unsigned int _numberOfWindowsHorizontally, _numberOfWindowsVertically, _numberOfWindows;
-	unsigned int _imageWidth, _imageHeight, _numberOfChannels;
-    unsigned int _windowHeight, _windowWidth;
-    unsigned int _windowStepHorizontal, _windowStepVertical;
-    bool _enablePadding;
-	ImageWindowIterator(double *image, unsigned int imageHeight, unsigned int imageWidth, unsigned int numberOfChannels,
-	        unsigned int windowHeight, unsigned int windowWidth, unsigned int windowStepHorizontal,
-			unsigned int windowStepVertical, bool enablePadding);
+	Py_ssize_t imageHeight, imageWidth,
+	           numberOfChannels, windowHeight, windowWidth,
+               windowStepHorizontal, windowStepVertical,
+               numberOfWindowsHorizontally, numberOfWindowsVertically;
+    bool enablePadding;
+	ImageWindowIterator(double* _image,
+	                    Py_ssize_t _imageHeight,
+	                    Py_ssize_t _imageWidth,
+	                    Py_ssize_t _numberOfChannels,
+	                    Py_ssize_t _windowHeight,
+	                    Py_ssize_t _windowWidth,
+	                    Py_ssize_t _windowStepHorizontal,
+			            Py_ssize_t _windowStepVertical,
+			            bool _enablePadding);
 	virtual ~ImageWindowIterator();
-	void apply(double *outputImage, int *windowsCenters, WindowFeature *windowFeature);
+	void apply(double *outputImage, Py_ssize_t *windowsCenters,
+	           WindowFeature *windowFeature);
 private:
-	double *_image;
+	double* image;
 };
