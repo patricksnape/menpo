@@ -4,13 +4,13 @@
 #include <stdlib.h>
 
 ImageWindowIterator::ImageWindowIterator(double* _image,
-    Py_ssize_t _imageHeight,
-    Py_ssize_t _imageWidth,
-    Py_ssize_t _numberOfChannels,
-	Py_ssize_t _windowHeight,
-	Py_ssize_t _windowWidth,
-	Py_ssize_t _windowStepHorizontal,
-	Py_ssize_t _windowStepVertical,
+    size_t _imageHeight,
+    size_t _imageWidth,
+    size_t _numberOfChannels,
+	size_t _windowHeight,
+	size_t _windowWidth,
+	size_t _windowStepHorizontal,
+	size_t _windowStepVertical,
 	bool _enablePadding) :
 	    imageHeight(_imageHeight), imageWidth(_imageWidth),
 	    numberOfChannels(_numberOfChannels), windowHeight(_windowHeight),
@@ -18,8 +18,8 @@ ImageWindowIterator::ImageWindowIterator(double* _image,
 	    windowStepVertical(_windowStepVertical), enablePadding(_enablePadding),
 	    image(_image) {
 
-    Py_ssize_t _numberOfWindowsHorizontally = 0,
-               _numberOfWindowsVertically = 0;
+    size_t _numberOfWindowsHorizontally = 0,
+           _numberOfWindowsVertically = 0;
 
     // Find number of windows
     if (!enablePadding) {
@@ -38,33 +38,31 @@ ImageWindowIterator::~ImageWindowIterator() {
 }
 
 
-void ImageWindowIterator::apply(double *outputImage, Py_ssize_t *windowsCenters, WindowFeature *windowFeature) {
-	Py_ssize_t rowCenter, rowFrom, rowTo, columnCenter, columnFrom, columnTo,
-	           i, j, k, d,
-	           windowIndexHorizontal, windowIndexVertical;
+void ImageWindowIterator::apply(double *outputImage, size_t *windowsCenters, WindowFeature *windowFeature) {
+	long long rowCenter, rowFrom, rowTo, columnCenter, columnFrom, columnTo, i, j, k, d;
 
     // Initialize temporary matrices
 	double* windowImage = new double[windowHeight * windowWidth * numberOfChannels];
 	double* descriptorVector = new double[windowFeature->descriptorLengthPerWindow];
 
     // Main loop
-    for (windowIndexVertical = 0; windowIndexVertical < numberOfWindowsVertically; windowIndexVertical++) {
-        for (windowIndexHorizontal = 0; windowIndexHorizontal < numberOfWindowsHorizontally; windowIndexHorizontal++) {
+    for (size_t windowIndexVertical = 0; windowIndexVertical < numberOfWindowsVertically; windowIndexVertical++) {
+        for (size_t windowIndexHorizontal = 0; windowIndexHorizontal < numberOfWindowsHorizontally; windowIndexHorizontal++) {
             // Find window limits
             if (!enablePadding) {
                 rowFrom = windowIndexVertical * windowStepVertical;
                 rowTo = rowFrom + windowHeight - 1;
-                rowCenter = rowFrom + (Py_ssize_t)round((double)windowHeight / 2.0) - 1;
+                rowCenter = rowFrom + (size_t)round((double)windowHeight / 2.0) - 1;
                 columnFrom = windowIndexHorizontal * windowStepHorizontal;
                 columnTo = columnFrom + windowWidth - 1;
-                columnCenter = columnFrom + (Py_ssize_t)round((double)windowWidth / 2.0) - 1;
+                columnCenter = columnFrom + (size_t)round((double)windowWidth / 2.0) - 1;
             }
             else {
                 rowCenter = windowIndexVertical * windowStepVertical;
-                rowFrom = rowCenter - (Py_ssize_t)round((double)windowHeight / 2.0) + 1;
+                rowFrom = rowCenter - (size_t)round((double)windowHeight / 2.0) + 1;
                 rowTo = rowFrom + windowHeight - 1;
                 columnCenter = windowIndexHorizontal * windowStepHorizontal;
-                columnFrom = columnCenter - (Py_ssize_t)ceil((double)windowWidth / 2.0) + 1;
+                columnFrom = columnCenter - (size_t)ceil((double)windowWidth / 2.0) + 1;
                 columnTo = columnFrom + windowWidth - 1;
             }
 

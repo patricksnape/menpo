@@ -1,15 +1,15 @@
 #include "HOG.h"
 
-HOG::HOG(Py_ssize_t windowHeight,
-         Py_ssize_t windowWidth,
-         Py_ssize_t numberOfChannels,
+HOG::HOG(size_t windowHeight,
+         size_t windowWidth,
+         size_t numberOfChannels,
          unsigned int method,
-         Py_ssize_t numberOfOrientationBins,
-         Py_ssize_t cellHeightAndWidthInPixels,
-         Py_ssize_t blockHeightAndWidthInCells,
+         size_t numberOfOrientationBins,
+         size_t cellHeightAndWidthInPixels,
+         size_t blockHeightAndWidthInCells,
          bool enableSignedGradients,
          double l2normClipping) {
-    Py_ssize_t descriptorLengthPerBlock = 0,
+    size_t descriptorLengthPerBlock = 0,
                numberOfBlocksPerWindowVertically = 0,
                numberOfBlocksPerWindowHorizontally = 0;
 
@@ -27,10 +27,10 @@ HOG::HOG(Py_ssize_t windowHeight,
     else if (method == ZHU_RAMANAN) {
         descriptorLengthPerBlock = 31;  // 27 + 4
         numberOfBlocksPerWindowVertically =
-        (Py_ssize_t)round((double)windowHeight /
+        (size_t)round((double)windowHeight /
                           (double)cellHeightAndWidthInPixels) - 2;
         numberOfBlocksPerWindowHorizontally =
-        (Py_ssize_t)round((double)windowWidth /
+        (size_t)round((double)windowWidth /
                           (double)cellHeightAndWidthInPixels) - 2;
     }
     this->method = method;
@@ -76,10 +76,10 @@ void HOG::apply(double *windowImage, double *descriptorVector) {
 // ZHU & RAMANAN: Face Detection, Pose Estimation and Landmark Localization
 //                in the Wild
 void ZhuRamananHOGdescriptor(double* inputImage,
-                             Py_ssize_t cellHeightAndWidthInPixels,
-                             Py_ssize_t imageHeight,
-                             Py_ssize_t imageWidth,
-                             Py_ssize_t numberOfChannels,
+                             size_t cellHeightAndWidthInPixels,
+                             size_t imageHeight,
+                             size_t imageWidth,
+                             size_t numberOfChannels,
                              double *descriptorMatrix) {
     // unit vectors used to compute gradient orientation
     static const double uu[9] = {1.0000, 0.9397, 0.7660, 0.500, 0.1736, -0.1736,
@@ -88,22 +88,22 @@ void ZhuRamananHOGdescriptor(double* inputImage,
                                  0.8660, 0.6428, 0.3420};
 
     // memory for caching orientation histograms & their norms
-    const Py_ssize_t blocks[2] = {(Py_ssize_t)round((double)imageHeight / (double)cellHeightAndWidthInPixels),
-                                  (Py_ssize_t)round((double)imageWidth / (double)cellHeightAndWidthInPixels)};
+    const size_t blocks[2] = {(size_t)round((double)imageHeight / (double)cellHeightAndWidthInPixels),
+                              (size_t)round((double)imageWidth / (double)cellHeightAndWidthInPixels)};
 
     double* hist = (double *)calloc(blocks[0] * blocks[1] * 18, sizeof(double));
     double* norm = (double *)calloc(blocks[0] * blocks[1], sizeof(double));
 
     // memory for HOG features
-    const Py_ssize_t out[3] = {inline_max(blocks[0] - 2, 0),
+    const size_t out[3] = {inline_max(blocks[0] - 2, 0),
                                inline_max(blocks[1] - 2, 0),
                                31};  // 27 + 4
 
-    const Py_ssize_t visible[2] = {blocks[0] * cellHeightAndWidthInPixels,
+    const size_t visible[2] = {blocks[0] * cellHeightAndWidthInPixels,
                                    blocks[1] * cellHeightAndWidthInPixels};
 
-    for (Py_ssize_t x = 1; x < visible[1] - 1; x++) {
-        for (Py_ssize_t y = 1; y < visible[0] - 1; y++) {
+    for (size_t x = 1; x < visible[1] - 1; x++) {
+        for (size_t y = 1; y < visible[0] - 1; y++) {
             // compute gradient
             // first channel
             double *s = inputImage + inline_min(x, imageWidth-2) * imageHeight +
@@ -112,7 +112,7 @@ void ZhuRamananHOGdescriptor(double* inputImage,
             double dx = *(s + imageHeight) - *(s - imageHeight);
             double v = dx * dx + dy * dy;
             // rest of channels
-            for (Py_ssize_t z = 1; z < numberOfChannels; z++) {
+            for (size_t z = 1; z < numberOfChannels; z++) {
                 s += imageHeight * imageWidth;
                 double dy2 = *(s + 1) - *(s - 1);
                 double dx2 = *(s + imageHeight) - *(s - imageHeight);
@@ -127,8 +127,8 @@ void ZhuRamananHOGdescriptor(double* inputImage,
 
             // snap to one of 18 orientations
             double best_dot = 0;
-            Py_ssize_t best_o = 0;
-            for (Py_ssize_t o = 0; o < 9; o++) {
+            unsigned int best_o = 0;
+            for (unsigned int o = 0; o < 9; o++) {
                 double dot = uu[o] * dx + vv[o] * dy;
                 if (dot > best_dot) {
                     best_dot = dot;
@@ -145,8 +145,8 @@ void ZhuRamananHOGdescriptor(double* inputImage,
                         (double)cellHeightAndWidthInPixels - 0.5;
             double yp = ((double)y + 0.5) /
                         (double)cellHeightAndWidthInPixels - 0.5;
-            Py_ssize_t ixp = (Py_ssize_t)floor(xp);
-            Py_ssize_t iyp = (Py_ssize_t)floor(yp);
+            long long ixp = (long long)floor(xp);
+            long long iyp = (long long)floor(yp);
             double vx0 = xp - ixp;
             double vy0 = yp - iyp;
             double vx1 = 1.0 - vx0;
@@ -185,8 +185,8 @@ void ZhuRamananHOGdescriptor(double* inputImage,
     }
 
     // compute features
-    for (Py_ssize_t x = 0; x < out[1]; x++) {
-        for (Py_ssize_t y = 0; y < out[0]; y++) {
+    for (size_t x = 0; x < out[1]; x++) {
+        for (size_t y = 0; y < out[0]; y++) {
             double *dst = descriptorMatrix + x * out[0] + y;
             double *src, *p, n1, n2, n3, n4;
 
@@ -254,13 +254,13 @@ void ZhuRamananHOGdescriptor(double* inputImage,
 
 // DALAL & TRIGGS: Histograms of Oriented Gradients for Human Detection
 void DalalTriggsHOGdescriptor(double *inputImage,
-                              Py_ssize_t numberOfOrientationBins,
-                              Py_ssize_t cellHeightAndWidthInPixels,
-                              Py_ssize_t blockHeightAndWidthInCells,
+                              size_t numberOfOrientationBins,
+                              size_t cellHeightAndWidthInPixels,
+                              size_t blockHeightAndWidthInCells,
                               bool signedOrUnsignedGradients,
-                              double l2normClipping, Py_ssize_t imageHeight,
-                              Py_ssize_t imageWidth,
-                              Py_ssize_t numberOfChannels,
+                              double l2normClipping, size_t imageHeight,
+                              size_t imageWidth,
+                              size_t numberOfChannels,
                               double *descriptorVector) {
     
     int hist1 = 2 + (imageHeight / (double)cellHeightAndWidthInPixels);
@@ -273,7 +273,7 @@ void DalalTriggsHOGdescriptor(double *inputImage,
     float gradientOrientation, gradientMagnitude, tempMagnitude, 
           Xc, Yc, Oc, blockNorm;
     int x1 = 0, x2 = 0, y1 = 0, y2 = 0, bin1 = 0, descriptorIndex = 0;
-    Py_ssize_t x, y, i, j, k, bin2;
+    size_t x, y, i, j, k, bin2;
 
     vector<vector<vector<double> > > h(hist1, vector<vector<double> >
                                        (hist2, vector<double>
@@ -283,21 +283,21 @@ void DalalTriggsHOGdescriptor(double *inputImage,
                                             (numberOfOrientationBins, 0.0) ) );
 
     //Calculate gradients (zero padding)
-    for(Py_ssize_t y = 0; y < imageHeight; y++) {
-        for(Py_ssize_t x = 0; x < imageWidth; x++) {
+    for(size_t y = 0; y < imageHeight; y++) {
+        for(size_t x = 0; x < imageWidth; x++) {
             if (x == 0) {
-                for (Py_ssize_t z = 0; z < numberOfChannels; z++)
+                for (size_t z = 0; z < numberOfChannels; z++)
                     dx[z] = inputImage[y + (x + 1) * imageHeight +
                                        z * imageHeight * imageWidth];
             }
             else {
                 if (x == imageWidth - 1) {
-                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
+                    for (size_t z = 0; z < numberOfChannels; z++)
                         dx[z] = -inputImage[y + (x - 1) * imageHeight +
                                             z * imageHeight * imageWidth];
                 }
                 else {
-                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
+                    for (size_t z = 0; z < numberOfChannels; z++)
                         dx[z] = inputImage[y + (x + 1) * imageHeight +
                                            z * imageHeight * imageWidth] -
                                 inputImage[y + (x - 1) * imageHeight +
@@ -306,18 +306,18 @@ void DalalTriggsHOGdescriptor(double *inputImage,
             }
 
             if(y == 0) {
-                for (Py_ssize_t z = 0; z < numberOfChannels; z++)
+                for (size_t z = 0; z < numberOfChannels; z++)
                     dy[z] = -inputImage[y + 1 + x * imageHeight +
                                         z * imageHeight * imageWidth];
             }
             else {
                 if (y == imageHeight - 1) {
-                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
+                    for (size_t z = 0; z < numberOfChannels; z++)
                         dy[z] = inputImage[y - 1 + x * imageHeight +
                                            z * imageHeight * imageWidth];
                 }
                 else {
-                    for (Py_ssize_t z = 0; z < numberOfChannels; z++)
+                    for (size_t z = 0; z < numberOfChannels; z++)
                         dy[z] = -inputImage[y + 1 + x * imageHeight +
                                             z * imageHeight * imageWidth] +
                                  inputImage[y - 1 + x * imageHeight +
@@ -330,7 +330,7 @@ void DalalTriggsHOGdescriptor(double *inputImage,
             gradientOrientation= atan2(dy[0], dx[0]);
             if (numberOfChannels > 1) {
                 tempMagnitude = gradientMagnitude;
-                for (Py_ssize_t cli = 1; cli < numberOfChannels; ++cli) {
+                for (size_t cli = 1; cli < numberOfChannels; ++cli) {
                     tempMagnitude= sqrt(dx[cli] * dx[cli] + dy[cli] * dy[cli]);
                     if (tempMagnitude > gradientMagnitude) {
                         gradientMagnitude = tempMagnitude;

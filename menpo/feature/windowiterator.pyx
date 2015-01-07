@@ -21,17 +21,17 @@ cdef extern from "math.h":
 cdef extern from "cpp/ImageWindowIterator.h":
     cdef cppclass ImageWindowIterator:
         ImageWindowIterator(double *image,
-                            Py_ssize_t imageHeight,
-                            Py_ssize_t imageWidth,
-                            Py_ssize_t numberOfChannels,
-                            Py_ssize_t windowHeight,
-                            Py_ssize_t windowWidth,
-                            Py_ssize_t windowStepHorizontal,
-                            Py_ssize_t windowStepVertical,
+                            size_t imageHeight,
+                            size_t imageWidth,
+                            size_t numberOfChannels,
+                            size_t windowHeight,
+                            size_t windowWidth,
+                            size_t windowStepHorizontal,
+                            size_t windowStepVertical,
                             bool enablePadding)
-        void apply(double *outputImage, Py_ssize_t *windowsCenters,
+        void apply(double *outputImage, size_t *windowsCenters,
                    WindowFeature *windowFeature)
-        Py_ssize_t numberOfWindowsHorizontally, \
+        size_t numberOfWindowsHorizontally, \
                    numberOfWindowsVertically, numberOfWindows, imageWidth, \
                    imageHeight, numberOfChannels, windowHeight, \
                    windowWidth, windowStepHorizontal, windowStepVertical
@@ -40,17 +40,17 @@ cdef extern from "cpp/ImageWindowIterator.h":
 cdef extern from "cpp/WindowFeature.h":
     cdef cppclass WindowFeature:
         void apply(double *windowImage, double *descriptorVector)
-        Py_ssize_t descriptorLengthPerWindow
+        size_t descriptorLengthPerWindow
 
 cdef extern from "cpp/HOG.h":
     cdef cppclass HOG(WindowFeature):
-        HOG(Py_ssize_t windowHeight,
-            Py_ssize_t windowWidth,
-            Py_ssize_t numberOfChannels,
+        HOG(size_t windowHeight,
+            size_t windowWidth,
+            size_t numberOfChannels,
             unsigned int method,
-            Py_ssize_t numberOfOrientationBins,
-            Py_ssize_t cellHeightAndWidthInPixels,
-            Py_ssize_t blockHeightAndWidthInCells,
+            size_t numberOfOrientationBins,
+            size_t cellHeightAndWidthInPixels,
+            size_t blockHeightAndWidthInCells,
             bool enableSignedGradients,
             double l2normClipping)
         void apply(double *windowImage, double *descriptorVector)
@@ -72,9 +72,9 @@ cdef class WindowIterator:
     cdef ImageWindowIterator* iterator
 
     def __cinit__(self, np.ndarray[np.float64_t, ndim=3] image,
-                  Py_ssize_t windowHeight, Py_ssize_t windowWidth,
-                  Py_ssize_t windowStepHorizontal,
-                  Py_ssize_t windowStepVertical, bool enablePadding):
+                  size_t windowHeight, size_t windowWidth,
+                  size_t windowStepHorizontal,
+                  size_t windowStepVertical, bool enablePadding):
         cdef np.ndarray[np.float64_t, ndim=3, mode='fortran'] image_f = \
             np.require(image, requirements='F')
         self.iterator = new ImageWindowIterator(&image_f[0, 0, 0],
@@ -127,10 +127,10 @@ cdef class WindowIterator:
             [self.iterator.numberOfWindowsVertically,
              self.iterator.numberOfWindowsHorizontally,
              hog.descriptorLengthPerWindow], order='F')
-        cdef Py_ssize_t[:, :, :] windowsCenters = np.zeros(
+        cdef size_t[:, :, :] windowsCenters = np.zeros(
             [self.iterator.numberOfWindowsVertically,
              self.iterator.numberOfWindowsHorizontally,
-             2], order='F', dtype=np.intp)
+             2], order='F', dtype=np.uintp)
         if verbose:
             info_str = "HOG features:\n"
             if method == 1:

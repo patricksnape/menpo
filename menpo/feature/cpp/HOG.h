@@ -22,22 +22,22 @@ using namespace std;
 
 class HOG: public WindowFeature {
 public:
-	HOG(Py_ssize_t windowHeight,
-	    Py_ssize_t windowWidth,
-	    Py_ssize_t numberOfChannels,
+	HOG(size_t windowHeight,
+	    size_t windowWidth,
+	    size_t numberOfChannels,
 	    unsigned int method,
-	    Py_ssize_t numberOfOrientationBins,
-	    Py_ssize_t cellHeightAndWidthInPixels,
-	    Py_ssize_t blockHeightAndWidthInCells,
+	    size_t numberOfOrientationBins,
+	    size_t cellHeightAndWidthInPixels,
+	    size_t blockHeightAndWidthInCells,
 	    bool enableSignedGradients,
 	    double l2normClipping);
 	virtual ~HOG();
 	void apply(double *windowImage, double *descriptorVector);
-	Py_ssize_t descriptorLengthPerBlock,
+	size_t descriptorLengthPerBlock,
 	           numberOfBlocksPerWindowHorizontally,
 	           numberOfBlocksPerWindowVertically;
 private:
-    Py_ssize_t numberOfOrientationBins, cellHeightAndWidthInPixels,
+    size_t numberOfOrientationBins, cellHeightAndWidthInPixels,
                blockHeightAndWidthInCells, windowHeight, windowWidth,
                numberOfChannels;
     unsigned int method;
@@ -46,18 +46,18 @@ private:
 };
 
 void ZhuRamananHOGdescriptor(double *inputImage,
-                             Py_ssize_t cellHeightAndWidthInPixels,
-                             Py_ssize_t imageHeight,
-                             Py_ssize_t imageWidth,
-                             Py_ssize_t numberOfChannels,
+                             size_t cellHeightAndWidthInPixels,
+                             size_t imageHeight,
+                             size_t imageWidth,
+                             size_t numberOfChannels,
                              double *descriptorMatrix);
 void DalalTriggsHOGdescriptor(double *inputImage,
-                              Py_ssize_t numberOfOrientationBins,
-                              Py_ssize_t cellHeightAndWidthInPixels,
-                              Py_ssize_t blockHeightAndWidthInCells,
+                              size_t numberOfOrientationBins,
+                              size_t cellHeightAndWidthInPixels,
+                              size_t blockHeightAndWidthInCells,
                               bool signedOrUnsignedGradientsBool,
                               double l2normClipping,
-                              Py_ssize_t imageHeight,
-                              Py_ssize_t imageWidth,
-                              Py_ssize_t numberOfChannels,
+                              size_t imageHeight,
+                              size_t imageWidth,
+                              size_t numberOfChannels,
                               double *descriptorVector);
