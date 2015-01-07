@@ -88,7 +88,7 @@ cpdef compute_normals(np.ndarray[DOUBLE_TYPES, ndim=2] vertex,
         uint64_t f0 = 0, f1 = 0, f2 = 0, i = 0
         uint64_t nface = face.shape[0]
         uint64_t nvert = vertex.shape[0]
-        np.ndarray[DOUBLE_TYPES, ndim=2] face_normal = np.empty_like(vertex, dtype=dtype)
+        np.ndarray[DOUBLE_TYPES, ndim=2] face_normal = np.zeros([nface, 3], dtype=dtype)
         np.ndarray[DOUBLE_TYPES, ndim=2] vertex_normal = np.zeros([nvert, 3], dtype=dtype)
         DOUBLE_TYPES[:, :] a, b, c
 
@@ -103,6 +103,7 @@ cpdef compute_normals(np.ndarray[DOUBLE_TYPES, ndim=2] vertex,
     c = face_normal
     cross(a, b, c)
 
+    face_normal = normalise(face_normal)
     # Calculate per-vertex normal
     for i in range(nface):
         f0 = face[i, 0]
@@ -113,4 +114,4 @@ cpdef compute_normals(np.ndarray[DOUBLE_TYPES, ndim=2] vertex,
             vertex_normal[f1, j] += face_normal[i, j]
             vertex_normal[f2, j] += face_normal[i, j]
 
-    return normalise(vertex_normal), normalise(face_normal)
+    return normalise(vertex_normal), face_normal
