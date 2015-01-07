@@ -3,40 +3,54 @@
 import numpy as np
 cimport numpy as np
 cimport cython
+from menpo.cy_utils cimport dtype_from_memoryview
 
-ctypedef np.uint64_t uint64_t
+
+# Allow the centres to be of different type from the images
+ctypedef fused IMAGE_TYPES:
+    double
+    float
+ctypedef fused CENTRES_TYPES:
+    double
+    float
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void calc_augmented_centers(double[:, :] centres, Py_ssize_t[:, :] offsets,
-                                 uint64_t[:, :] augmented_centers):
-    cdef uint64_t total_index = 0, i = 0, j = 0
+cdef void calc_augmented_centers(CENTRES_TYPES[:, :] centres,
+                                 Py_ssize_t[:, :] offsets,
+                                 Py_ssize_t[:, :] augmented_centers):
+    cdef:
+        size_t total_index = 0, i = 0, j = 0
+        size_t n_centres = centres.shape[0]
+        size_t n_offsets = offsets.shape[0]
 
-    for i in range(centres.shape[0]):
-        for j in range(offsets.shape[0]):
-            augmented_centers[total_index, 0] = <uint64_t> (centres[i, 0] + offsets[j, 0])
-            augmented_centers[total_index, 1] = <uint64_t> (centres[i, 1] + offsets[j, 1])
+    for i in range(n_centres):
+        for j in range(n_offsets):
+            augmented_centers[total_index, 0] = <Py_ssize_t> (centres[i, 0] + offsets[j, 0])
+            augmented_centers[total_index, 1] = <Py_ssize_t> (centres[i, 1] + offsets[j, 1])
             total_index += 1
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void calc_slices(uint64_t[:, :] centres,
-                      uint64_t image_shape0,
-                      uint64_t image_shape1,
-                      uint64_t patch_shape0,
-                      uint64_t patch_shape1,
-                      uint64_t half_patch_shape0,
-                      uint64_t half_patch_shape1,
-                      uint64_t add_to_patch0,
-                      uint64_t add_to_patch1,
+cdef void calc_slices(Py_ssize_t[:, :] centres,
+                      Py_ssize_t image_shape0,
+                      Py_ssize_t image_shape1,
+                      size_t patch_shape0,
+                      size_t patch_shape1,
+                      size_t half_patch_shape0,
+                      size_t half_patch_shape1,
+                      size_t add_to_patch0,
+                      size_t add_to_patch1,
                       Py_ssize_t[:, :] ext_s_min,
                       Py_ssize_t[:, :] ext_s_max,
                       Py_ssize_t[:, :] ins_s_min,
                       Py_ssize_t[:, :] ins_s_max):
-    cdef uint64_t i = 0, c_min_new0 = 0, c_min_new1 = 0, c_max_new0 = 0, c_max_new1 = 0
+    cdef:
+        size_t i = 0, c_min_new0 = 0, c_min_new1 = 0, c_max_new0 = 0, c_max_new1 = 0
+        size_t n_centres = centres.shape[0]
 
-    for i in range(centres.shape[0]):
+    for i in range(n_centres):
         c_min_new0 = centres[i, 0] - half_patch_shape0
         c_min_new1 = centres[i, 1] - half_patch_shape1
         c_max_new0 = centres[i, 0] + half_patch_shape0 + add_to_patch0
@@ -78,16 +92,16 @@ cdef void calc_slices(uint64_t[:, :] centres,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void slice_image(double[:, :, :] image,
-                      uint64_t n_channels,
-                      uint64_t n_centres,
-                      uint64_t n_offsets,
+cdef void slice_image(IMAGE_TYPES[:, :, :] image,
+                      size_t n_channels,
+                      size_t n_centres,
+                      size_t n_offsets,
                       Py_ssize_t[:, :] ext_s_min,
                       Py_ssize_t[:, :] ext_s_max,
                       Py_ssize_t[:, :] ins_s_min,
                       Py_ssize_t[:, :] ins_s_max,
-                      double[:, :, :, :, :] patches):
-    cdef uint64_t total_index = 0, i = 0, j = 0
+                      IMAGE_TYPES[:, :, :, :, :] patches):
+    cdef size_t total_index = 0, i = 0, j = 0
 
     for i in range(n_centres):
         for j in range(n_offsets):
@@ -105,41 +119,40 @@ cdef void slice_image(double[:, :, :] image,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef extract_patches(double[:, :, :] image,
-                      double[:, :] centres,
-                      uint64_t[:] patch_shape,
+cpdef extract_patches(IMAGE_TYPES[:, :, :] image,
+                      CENTRES_TYPES[:, :] centres,
+                      size_t[:] patch_shape,
                       Py_ssize_t[:, :] offsets):
     cdef:
-        uint64_t n_centres = centres.shape[0]
-        uint64_t n_offsets = offsets.shape[0]
-        uint64_t n_augmented_centres = n_centres * n_offsets
+        size_t n_centres = centres.shape[0]
+        size_t n_offsets = offsets.shape[0]
+        size_t n_augmented_centres = n_centres * n_offsets
 
-        uint64_t half_patch_shape0 = patch_shape[0] / 2
-        uint64_t half_patch_shape1 = patch_shape[1] / 2
-        uint64_t add_to_patch0 = patch_shape[0] % 2
-        uint64_t add_to_patch1 = patch_shape[1] % 2
-        uint64_t patch_shape0 = patch_shape[0]
-        uint64_t patch_shape1 = patch_shape[1]
-        uint64_t image_shape0 = image.shape[1]
-        uint64_t image_shape1 = image.shape[2]
-        uint64_t n_channels = image.shape[0]
+        size_t half_patch_shape0 = patch_shape[0] / 2
+        size_t half_patch_shape1 = patch_shape[1] / 2
+        size_t add_to_patch0 = patch_shape[0] % 2
+        size_t add_to_patch1 = patch_shape[1] % 2
+        size_t patch_shape0 = patch_shape[0]
+        size_t patch_shape1 = patch_shape[1]
+        Py_ssize_t image_shape0 = image.shape[1]
+        Py_ssize_t image_shape1 = image.shape[2]
+        size_t n_channels = image.shape[0]
 
         # Although it is faster to use malloc in this case, the change in syntax
         # and the mental overhead of handling freeing memory is not considered
         # worth it for these buffers. From simple tests it seems you only begin
         # to see a performance difference when you have
         # n_augmented_centres >~ 5000
-        uint64_t[:, :] augmented_centers = np.empty([n_augmented_centres, 2], dtype=np.uint64)
+        Py_ssize_t[:, :] augmented_centers = np.empty([n_augmented_centres, 2], dtype=np.intp)
         Py_ssize_t[:, :] ext_s_max = np.empty([n_augmented_centres, 2], dtype=np.intp)
         Py_ssize_t[:, :] ext_s_min = np.empty([n_augmented_centres, 2], dtype=np.intp)
         Py_ssize_t[:, :] ins_s_max = np.empty([n_augmented_centres, 2], dtype=np.intp)
         Py_ssize_t[:, :] ins_s_min = np.empty([n_augmented_centres, 2], dtype=np.intp)
 
-        np.ndarray[double, ndim=5] patches = np.zeros([n_centres,
-                                                       n_offsets,
-                                                       n_channels,
-                                                       patch_shape0,
-                                                       patch_shape1])
+        output_dtype = dtype_from_memoryview(image)
+        IMAGE_TYPES[:, :, :, :, :] patches = np.zeros(
+            [n_centres, n_offsets, n_channels, patch_shape0, patch_shape1],
+            dtype=output_dtype)
 
     calc_augmented_centers(centres, offsets, augmented_centers)
     calc_slices(augmented_centers,
@@ -165,4 +178,5 @@ cpdef extract_patches(double[:, :, :] image,
                 ins_s_max,
                 patches)
 
-    return patches
+    # No copy (as ndarray)
+    return np.asarray(patches)
