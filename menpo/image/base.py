@@ -794,7 +794,7 @@ class Image(Vectorizable, LandmarkableViewable):
 
         single_array = extract_patches(self.pixels,
                                        patch_centers.points,
-                                       np.asarray(patch_size, dtype=np.intp),
+                                       np.asarray(patch_size, dtype=np.uint64),
                                        sample_offsets_arr)
 
         if as_single_array:
