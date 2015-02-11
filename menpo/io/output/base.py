@@ -176,8 +176,13 @@ def _export(obj, fp, extensions_map, extension, overwrite):
     if isinstance(fp, basestring):
         path_filepath = _validate_filepath(fp, extension, overwrite)
 
-        export_function = _extension_to_export_function(
-            path_filepath.suffix, extensions_map)
+        # Support multi-part file extensions e.g. .tar.gz
+        try:
+            export_function = _extension_to_export_function(
+                path_filepath.suffix, extensions_map)
+        except ValueError:
+            export_function = _extension_to_export_function(
+                ''.join(path_filepath.suffixes), extensions_map)
 
         with path_filepath.open('wb') as file_handle:
             export_function(obj, file_handle)

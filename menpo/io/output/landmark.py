@@ -52,3 +52,57 @@ def PTSExporter(landmark_group, file_handle):
     header = 'version: 1\nn_points: {}\n{{'.format(pts.shape[0])
     np.savetxt(file_handle, pts, delimiter=' ', header=header, footer='}',
                fmt='%.3f', comments='')
+
+
+def VOC2007XMLExporter(landmark_image_tuple, file_handle):
+    r"""
+    Given a file handle to write in to (which should act like a Python `file`
+    object), write out the landmark data. No value is returned.
+
+    Writes out the VOC 2007 XML format.
+
+    Parameters
+    ----------
+    landmark_image_tuple : (:map:`Image`, map:`LandmarkGroup`) `tuple`
+        The landmark group and image pair to write out.
+    file_handle : `file`-like object
+        The file to write in to.
+    """
+    if len(landmark_image_tuple) != 2:
+        raise ValueError('This method expects a tuple - '
+                         '(image, landmark_group).')
+
+    image, landmark_group = landmark_image_tuple
+    bb = landmark_group.lms.bounding_box()
+
+    if not hasattr(image, 'path'):
+        raise ValueError('The image passed to this method must have a "path" '
+                         'attribute attached to it.')
+
+    from lxml import etree
+    from lxml.builder import E
+
+    xml = E.annotation(
+        E.folder(str(image.path.parent)),
+        E.filename(image.path.name),
+        E.size(
+            E.width(str(image.width)),
+            E.height(str(image.height)),
+            E.depth(str(image.n_channels))),
+        E.segmented('0'),
+        E.object(
+            E.name('face'),
+            E.pose('Unspecified'),
+            E.truncated('0'),
+            E.difficult('0'),
+            E.bndbox(
+                E.xmin(str(int(bb.points[0, 1]))),
+                E.ymin(str(int(bb.points[0, 0]))),
+                E.xmax(str(int(bb.points[3, 1]))),
+                E.ymax(str(int(bb.points[1, 0])))
+            )
+        )
+    )
+
+    et = etree.ElementTree(xml)
+    et.write(file_handle)

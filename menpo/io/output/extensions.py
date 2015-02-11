@@ -1,10 +1,11 @@
-from .landmark import LJSONExporter, PTSExporter
+from .landmark import LJSONExporter, PTSExporter, VOC2007XMLExporter
 from .image import PILExporter
 from .pickle import pickle_export
 
 landmark_types = {
     '.ljson': LJSONExporter,
-    '.pts': PTSExporter
+    '.pts': PTSExporter,
+    '.voc2007.xml': VOC2007XMLExporter
 }
 
 image_types = {
