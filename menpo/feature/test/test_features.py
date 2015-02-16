@@ -1,3 +1,4 @@
+from __future__ import division
 import numpy as np
 from numpy.testing import assert_allclose
 import random
@@ -129,24 +130,22 @@ def test_hog_channels_dalaltriggs():
 
 def test_hog_channels_zhuramanan():
     n_cases = 3
-    cell_size = np.random.randint(2, 10, [n_cases, 1])
-    channels = np.random.randint(1, 4, [n_cases, 1])
+    cell_size = np.random.randint(2, 10, [n_cases])
+    channels = np.random.randint(1, 4, [n_cases])
     for i in range(n_cases):
-        image = MaskedImage(np.random.randn(channels[i, 0], 40, 40))
-        window_width = np.random.randint(3 * cell_size[i, 0], 40, 1)
-        window_height = np.random.randint(3 * cell_size[i, 0], 40, 1)
+        image = MaskedImage(np.random.randn(channels[i], 40, 40))
+        win_width = np.random.randint(3 * cell_size[i], 40, 1)
+        win_height = np.random.randint(3 * cell_size[i], 40, 1)
         hog_img = hog(image, mode='dense', algorithm='zhuramanan',
-                      cell_size=cell_size[i, 0],
-                      window_height=window_height[0],
-                      window_width=window_width[0],
+                      cell_size=cell_size[i],
+                      window_height=win_height[0],
+                      window_width=win_width[0],
                       window_unit='pixels', window_step_vertical=3,
                       window_step_horizontal=3,
-                      window_step_unit='pixels', padding=True)
+                      window_step_unit='pixels', padding=True, verbose=True)
         length_per_block = 31
-        n_blocks_horizontal = round(np.float(window_width[0])
-                                       / np.float(cell_size[i, 0])) - 2
-        n_blocks_vertical = round(np.float(window_height[0])
-                                     / np.float(cell_size[i, 0])) - 2
+        n_blocks_horizontal = np.floor((win_width[0] / cell_size[i]) + 0.5) - 2
+        n_blocks_vertical = np.floor((win_height[0] / cell_size[i]) + 0.5) - 2
         n_channels = n_blocks_horizontal * n_blocks_vertical * length_per_block
         assert_allclose(hog_img.n_channels, n_channels)
 
@@ -156,8 +155,8 @@ def test_lbp_channels():
     n_combs = np.random.randint(1, 6, [n_cases, 1])
     channels = np.random.randint(1, 4, [n_cases, 1])
     for i in range(n_cases):
-        radius = random.sample(xrange(1, 10), n_combs[i, 0])
-        samples = random.sample(xrange(4, 12), n_combs[i, 0])
+        radius = random.sample(range(1, 10), n_combs[i, 0])
+        samples = random.sample(range(4, 12), n_combs[i, 0])
         image = MaskedImage(np.random.randn(channels[i, 0], 40, 40))
         lbp_img = lbp(image, radius=radius, samples=samples,
                       window_step_vertical=3, window_step_horizontal=3,
@@ -237,10 +236,10 @@ def test_daisy_values():
                    [2., 1., 3., 4.]])
     daisy_img = daisy(image, step=1, rings=2, radius=1, orientations=8,
                       histograms=8)
-    assert_allclose(np.around(daisy_img.pixels[10, 0, 0], 6), 0.000261)
-    assert_allclose(np.around(daisy_img.pixels[20, 0, 1], 6), 0.002853)
-    assert_allclose(np.around(daisy_img.pixels[30, 1, 0], 6), 0.007266)
-    assert_allclose(np.around(daisy_img.pixels[40, 1, 1], 6), 0.001971)
+    assert_allclose(np.around(daisy_img.pixels[10, 0, 0], 6), 0.000117)
+    assert_allclose(np.around(daisy_img.pixels[20, 0, 1], 6), 0.002526)
+    assert_allclose(np.around(daisy_img.pixels[30, 1, 0], 6), 0.025932)
+    assert_allclose(np.around(daisy_img.pixels[40, 1, 1], 6), 0.002076)
 
 
 def test_lbp_values():
@@ -275,3 +274,6 @@ def test_constrain_landmarks():
     y = np.where(hog_b.landmarks['PTS'].lms.points[:, 0] > hog_b.shape[0] - 1)
     assert_allclose(len(x[0]) + len(y[0]), 0)
 
+
+
+test_hog_channels_zhuramanan()
