@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 static inline size_t SUB2IND(const size_t j, const size_t i, const size_t k,
                              const size_t row_size, const size_t col_size,
                              const size_t n_channels) {
