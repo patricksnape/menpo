@@ -3,7 +3,6 @@
 static inline size_t SUB2IND(const size_t j, const size_t i, const size_t k,
                              const size_t row_size, const size_t col_size,
                              const size_t n_channels) {
-    //return ((i + col_size * j) * n_channels) + k;
     return (i + col_size * j) + (row_size * col_size * k);
 }
 
@@ -12,10 +11,13 @@ void central_difference(const T* in, const size_t rows, const size_t cols,
                         const size_t n_channels,
                         T* out) {
     const size_t n_output_channels = n_channels * 2;
-    size_t output_index = 0;
 
-    #pragma omp for
+    // This pragma only really helps for very large images with a few channels
+    // Therefore, it is much faster for large image feature computation, but
+    // will not increase the speed of image fitting.
+    #pragma omp parallel for if(n_channels >= 5 && rows >= 1000 && cols >= 1000)
     for (size_t k = 0; k < n_channels; ++k) {
+        size_t output_index = 0;
         // row-derivative
         for (size_t i = 0; i < cols; ++i) {
             for (size_t j = 0; j < rows; ++j) {
