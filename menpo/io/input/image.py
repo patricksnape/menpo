@@ -169,3 +169,37 @@ class ABSImporter(Importer):
             np.rollaxis(np.reshape(data_view, [n_rows, n_cols, 3]), -1),
             np.reshape(image_data[:, 0], [n_rows, n_cols]).astype(np.bool),
             copy=False)
+
+
+class FLOImporter(Importer):
+    r"""
+    Allows importing the Middlebury FLO file format.
+
+    Parameters
+    ----------
+    filepath : string
+        Absolute filepath of the mesh.
+    """
+
+    def __init__(self, filepath, **kwargs):
+        # Setup class before super class call
+        super(FLOImporter, self).__init__(filepath)
+
+    def build(self):
+        with open(self.filepath, 'rb') as f:
+            fingerprint = f.read(4)
+            if fingerprint != 'PIEH':
+                raise ValueError('Invalid FLO file.')
+
+            width, height = np.fromfile(f, dtype=np.uint32, count=2)
+            # read the raw flow data (u0, v0, u1, v1, u2, v2,...)
+            rawData = np.fromfile(f, dtype=np.float32,
+                                  count=width * height * 2)
+
+        shape = (height, width)
+        u_raw = rawData[::2].reshape(shape)
+        v_raw = rawData[1::2].reshape(shape)
+        uv = np.vstack([u_raw[None, ...], v_raw[None, ...]])
+
+        return Image(uv, copy=False)
+
