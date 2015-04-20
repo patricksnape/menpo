@@ -90,6 +90,33 @@ def export_image(image, fp, extension=None, overwrite=False):
     _export(image, fp, image_types, extension, overwrite)
 
 
+def export_video(images, fp, fps=None, durations=None):
+    r"""
+    Exports a list of images to a video. The ``fp`` argument must be a `str`.
+
+    Parameters
+    ----------
+    image : :map:`Image`
+        The image to export.
+    fp : `str`
+        The string path to save the object at.
+
+    Raises
+    ------
+    ValueError
+        File already exists and ``overwrite`` != ``True``
+    ValueError
+        The provided extension does not match to an existing exporter type
+        (the output type is not supported).
+    """
+    from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+    import numpy as np
+
+    clip = ImageSequenceClip([np.array(im.as_PILImage()) for im in images],
+                             fps=fps, durations=durations)
+    clip.write_videofile(fp)
+
+
 def export_pickle(obj, fp, overwrite=False):
     r"""
     Exports a given collection of Python objects with Pickle.
