@@ -1,6 +1,7 @@
 from collections import OrderedDict
 import json
 import warnings
+import itertools
 
 import numpy as np
 
@@ -287,6 +288,12 @@ class LM2Importer(LandmarkImporter):
         self.labels_to_masks = OrderedDict(zip(labels, masks))
 
 
+def _ljson_parse_null_values(points_list):
+    filtered_points = [np.nan if x is None else x
+                       for x in itertools.chain(*points_list)]
+    return np.array(filtered_points).reshape([-1, len(points_list[0])])
+
+
 def _parse_ljson_v1(lms_dict):
     from menpo.base import MenpoDeprecationWarning
     warnings.warn('LJSON v1 is deprecated. export_landmark_file{s}() will '
@@ -307,17 +314,17 @@ def _parse_ljson_v1(lms_dict):
         if conn:
             # Offset relative connectivity according to the current index
             conn = offset + np.asarray(conn)
-            connectivity.append(conn)
+            connectivity += conn.tolist()
         for p in lms:
             all_points.append(p['point'])
         offset += len(lms)
 
     # Don't create a PointUndirectedGraph with no connectivity
-    points = np.array(all_points)
+    points = _ljson_parse_null_values(all_points)
     if len(connectivity) == 0:
         pcloud = PointCloud(points)
     else:
-        pcloud = PointUndirectedGraph(points, np.vstack(connectivity))
+        pcloud = PointUndirectedGraph.init_from_edges(points, connectivity)
     labels_to_masks = OrderedDict()
     # go through each label and build the appropriate boolean array
     for label, l_slice in zip(labels, labels_slices):
@@ -330,14 +337,14 @@ def _parse_ljson_v1(lms_dict):
 def _parse_ljson_v2(lms_dict):
     labels_to_mask = OrderedDict()  # masks into the full pointcloud per label
 
-    points = np.array(lms_dict['landmarks']['points'])
+    points = _ljson_parse_null_values(lms_dict['landmarks']['points'])
     connectivity = lms_dict['landmarks'].get('connectivity')
 
     # Don't create a PointUndirectedGraph with no connectivity
-    if connectivity is None:
+    if connectivity is None or len(connectivity) == 0:
         pcloud = PointCloud(points)
     else:
-        pcloud = PointUndirectedGraph(points, np.vstack(connectivity))
+        pcloud = PointUndirectedGraph.init_from_edges(points, connectivity)
 
     for label in lms_dict['labels']:
         mask = np.zeros(pcloud.n_points, dtype=np.bool)
