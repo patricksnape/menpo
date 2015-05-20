@@ -1,7 +1,8 @@
 import os
 import sys
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
 import versioneer
+from glob import glob
 
 
 on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
@@ -17,13 +18,23 @@ else:
 
     # ---- C/C++ EXTENSIONS ---- #
     cython_modules = ['menpo/shape/mesh/normals.pyx',
-                      'menpo/transform/piecewiseaffine/fastpwa.pyx',
                       'menpo/feature/windowiterator.pyx',
                       'menpo/feature/gradient.pyx',
                       'menpo/external/skimage/_warps_cy.pyx',
                       'menpo/image/extract_patches.pyx']
 
     cython_exts = cythonize(cython_modules, quiet=True)
+    cython_exts += cythonize([
+        Extension('menpo.transform.piecewiseaffine.fastpwa',
+                  include_dirs=['menpo/transform/piecewiseaffine/fastpwa/opcode',
+                               'menpo/transform/piecewiseaffine/fastpwa/opcode/Ice'],
+                  language='c++',
+                  sources=glob('menpo/transform/piecewiseaffine/fastpwa/opcode/OPC_*.cpp') +
+                          glob('menpo/transform/piecewiseaffine/fastpwa/opcode/Ice/Ice*.cpp') +
+                          ['menpo/transform/piecewiseaffine/fastpwa/opcode/Opcode.cpp',
+                           'menpo/transform/piecewiseaffine/fastpwa/opcode_wrapper.cpp',
+                           'menpo/transform/piecewiseaffine/fastpwa.pyx'])
+    ])
     include_dirs = [np.get_include()]
     install_requires = ['numpy>=1.9.1,<1.10',
                         'scipy>=0.15,<0.16',

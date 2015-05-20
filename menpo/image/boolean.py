@@ -32,11 +32,11 @@ def pwa_point_in_pointcloud(pcloud, indices, batch_size=None):
         Whether each pixel index was in inside the convex hull of the
         pointcloud or not.
     """
-    from menpo.transform.piecewiseaffine import PiecewiseAffine
+    from menpo.transform.piecewiseaffine.base import CythonPWA
     from menpo.transform.piecewiseaffine import TriangleContainmentError
 
     try:
-        pwa = PiecewiseAffine(pcloud, pcloud)
+        pwa = CythonPWA(pcloud, pcloud)
         pwa.apply(indices, batch_size=batch_size)
         return np.ones(indices.shape[0], dtype=np.bool)
     except TriangleContainmentError as e:

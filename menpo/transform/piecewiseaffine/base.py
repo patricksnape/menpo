@@ -2,8 +2,7 @@ import numpy as np
 from copy import deepcopy
 from menpo.base import Copyable
 from menpo.transform.base import Alignment, Invertible, Transform
-from .fastpwa import CLookupPWA
-# TODO View is broken for PWA (TriangleContainmentError)
+from .fastpwa import OpcodePWA
 
 
 class TriangleContainmentError(Exception):
@@ -429,12 +428,12 @@ class CythonPWA(AbstractPWA):
     def __init__(self, source, target):
         super(CythonPWA, self).__init__(source, target)
         # make sure the source and target satisfy the c requirements
-        source_c = np.require(self.source.points, dtype=np.float64,
+        source_c = np.require(self.source.points, dtype=np.float32,
                               requirements=['C'])
-        trilist_c = np.require(self.trilist, dtype=np.uint32,
+        trilist_c = np.require(self.trilist, dtype=np.int32,
                                requirements=['C'])
         # build the cython wrapped C object and store it locally
-        self._fastpwa = CLookupPWA(source_c, trilist_c)
+        self._fastpwa = OpcodePWA(source_c, trilist_c)
 
     def copy(self):
         new = Copyable.copy(self)
@@ -442,7 +441,7 @@ class CythonPWA(AbstractPWA):
         return new
 
     def index_alpha_beta(self, points):
-        points_c = np.require(points, dtype=np.float64, requirements=['C'])
+        points_c = np.require(points, dtype=np.float32, requirements=['C'])
         index, alpha, beta = self._fastpwa.index_alpha_beta(points_c)
         if np.any(index < 0):
             raise TriangleContainmentError(index < 0)
