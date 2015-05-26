@@ -1,10 +1,11 @@
+# distutils: language = c++
+
 import numpy as np
 import cython
 cimport numpy as np
 cimport cython
 
 
-ctypedef np.uint32_t uint32_t
 ctypedef fused DOUBLE_TYPES:
     double
     float
@@ -58,7 +59,7 @@ cdef inline void cross(const DOUBLE_TYPES[:, :] x, const DOUBLE_TYPES[:, :] y,
 
 # We need explicit number arrays here because we use fancy indexing
 cpdef compute_normals(np.ndarray[DOUBLE_TYPES, ndim=2] vertex,
-                      np.ndarray[uint32_t, ndim=2] face):
+                      np.ndarray[size_t, ndim=2] face):
     """
     Compute the per-vertex and per-face normal of the vertices given a list of
     faces.
@@ -77,13 +78,13 @@ cpdef compute_normals(np.ndarray[DOUBLE_TYPES, ndim=2] vertex,
     face_normal : (M, 3) c-contiguous DOUBLE_TYPES ndarray
         The normal per face.
     """
-    # Maintan the vertex dtype
+    # Maintain the vertex dtype
     dtype = vertex.dtype
     cdef:
-        uint32_t f0 = 0, f1 = 0, f2 = 0
-        size_t i = 0
-        uint32_t nface = face.shape[0]
-        uint32_t nvert = vertex.shape[0]
+        size_t f0 = 0, f1 = 0, f2 = 0
+        size_t i = 0, j = 0
+        size_t nface = face.shape[0]
+        size_t nvert = vertex.shape[0]
         DOUBLE_TYPES[:, :] face_normal = np.zeros([nface, 3], dtype=dtype)
         DOUBLE_TYPES[:, :] vertex_normal = np.zeros([nvert, 3], dtype=dtype)
         DOUBLE_TYPES[:, :] first_edges, second_edges

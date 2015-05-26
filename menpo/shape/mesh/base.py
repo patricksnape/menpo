@@ -1,4 +1,3 @@
-# coding=utf-8
 import numpy as np
 from warnings import warn
 
@@ -42,15 +41,15 @@ class TriMesh(PointCloud):
             global Delaunay
             if Delaunay is None:
                 from scipy.spatial import Delaunay  # expensive
-            trilist = Delaunay(points).simplices
+            trilist = np.require(Delaunay(points).simplices, dtype=np.uintp)
         if not copy:
             if not trilist.flags.c_contiguous:
                 warn('The copy flag was NOT honoured. A copy HAS been made. '
                      'Please ensure the data you pass is C-contiguous.')
                 trilist = np.array(trilist, copy=True, order='C',
-                                   dtype=np.uint32)
+                                   dtype=np.uintp)
         else:
-            trilist = np.array(trilist, copy=True, order='C', dtype=np.uint32)
+            trilist = np.array(trilist, copy=True, order='C', dtype=np.uintp)
         self.trilist = trilist
 
     def __str__(self):
