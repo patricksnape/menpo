@@ -11,7 +11,7 @@ if on_rtd:
     install_requires = []
     ext_modules = []
     include_dirs = []
-    cython_exts = []
+    all_cython_exts = []
 else:
     from Cython.Build import cythonize
     import numpy as np
