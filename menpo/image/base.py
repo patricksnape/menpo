@@ -1120,15 +1120,23 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             raise ValueError('Only two dimensional patch extraction is '
                              'currently supported.')
 
+        # Convert patch size to correct type for C - and for easier manipulation
+        patch_size = np.asarray(patch_size, dtype=np.uintp)
+
+        if patch_size.size != 2:
+            raise ValueError('patch_size must be 2D')
+        if np.any(patch_size <= 0):
+            raise ValueError('patch_size must be >= 0')
+
         if sample_offsets is None:
+            # No offsets by default
             sample_offsets_arr = np.zeros([1, 2], dtype=np.intp)
         else:
             sample_offsets_arr = np.require(sample_offsets.points,
                                             dtype=np.intp)
 
         single_array = extract_patches(self.pixels, patch_centers.points,
-                                       np.asarray(patch_size, dtype=np.intp),
-                                       sample_offsets_arr)
+                                       patch_size, sample_offsets_arr)
 
         if as_single_array:
             return single_array

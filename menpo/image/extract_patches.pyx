@@ -34,8 +34,8 @@ cdef void calc_augmented_centers(CENTRES_TYPES[:, :] centres,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void calc_slices(Py_ssize_t[:, :] centres,
-                      Py_ssize_t image_shape0,
-                      Py_ssize_t image_shape1,
+                      size_t image_shape0,
+                      size_t image_shape1,
                       size_t patch_shape0,
                       size_t patch_shape1,
                       size_t half_patch_shape0,
@@ -134,8 +134,8 @@ cpdef extract_patches(IMAGE_TYPES[:, :, :] image,
         size_t add_to_patch1 = patch_shape[1] % 2
         size_t patch_shape0 = patch_shape[0]
         size_t patch_shape1 = patch_shape[1]
-        Py_ssize_t image_shape0 = image.shape[1]
-        Py_ssize_t image_shape1 = image.shape[2]
+        size_t image_shape0 = image.shape[1]
+        size_t image_shape1 = image.shape[2]
         size_t n_channels = image.shape[0]
 
         # Although it is faster to use malloc in this case, the change in syntax
