@@ -3,6 +3,7 @@ import sys
 from setuptools import setup, find_packages
 import versioneer
 import platform
+import glob
 
 
 on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
@@ -47,35 +48,32 @@ else:
     install_requires = ['numpy>=1.9.1,<1.10',
                         'scipy>=0.15,<0.16',
                         'matplotlib>=1.4,<1.5',
-                        'pillow==2.7.0',
-                        'Cython>=0.21,<0.22']
+                        'pillow>=2.8,<2.9',
+                        'Cython>=0.22,<0.23']
 
     if sys.version_info.major == 2:
         install_requires.append('pathlib==1.0')
 
-# Versioneer allows us to automatically generate versioning from
-# our git tagging system which makes releases simpler.
-versioneer.VCS = 'git'
-versioneer.versionfile_source = 'menpo/_version.py'
-versioneer.versionfile_build = 'menpo/_version.py'
-versioneer.tag_prefix = 'v'  # tags are like v1.2.0
-versioneer.parentdir_prefix = 'menpo-'  # dirname like 'menpo-v1.2.0'
+# Explicitly specify the image/landmark data in the data folder
+builtin_data = filter(lambda x: os.path.isfile(x), glob.glob('menpo/data/*'))
+builtin_data = [os.path.relpath(x, start='menpo') for x in builtin_data]
 
 setup(name='menpo',
       version=versioneer.get_version(),
       cmdclass=versioneer.get_cmdclass(),
-      description='iBUG Facial Modelling Toolkit',
+      description='A Python toolkit for handling annotated data',
       author='James Booth',
       author_email='james.booth08@imperial.ac.uk',
       include_dirs=include_dirs,
       ext_modules=all_cython_exts,
       packages=find_packages(),
       install_requires=install_requires,
-      package_data={'menpo': ['data/*',
-                              'feature/cpp/*.cpp',
-                              'feature/cpp/*.h',
-                              'transform/piecewiseaffine/fastpwa/*.c',
-                              'transform/piecewiseaffine/fastpwa/*.h'],
+      package_data={'menpo': builtin_data + [
+                             'data/logos/*',
+                             'feature/cpp/*.cpp',
+                             'feature/cpp/*.h',
+                             'transform/piecewiseaffine/fastpwa/*.c',
+                             'transform/piecewiseaffine/fastpwa/*.h'],
                     '': ['*.pxd', '*.pyx']},
       tests_require=['nose', 'mock']
 )
