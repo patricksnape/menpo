@@ -257,7 +257,7 @@ void DalalTriggsHOGdescriptor(double *inputImage,
                               size_t numberOfOrientationBins,
                               size_t cellHeightAndWidthInPixels,
                               size_t blockHeightAndWidthInCells,
-                              bool signedOrUnsignedGradients,
+                              const bool signedOrUnsignedGradients,
                               double l2normClipping, size_t imageHeight,
                               size_t imageWidth,
                               size_t numberOfChannels,
@@ -272,8 +272,9 @@ void DalalTriggsHOGdescriptor(double *inputImage,
     float *dy = new float[numberOfChannels];
     float gradientOrientation, gradientMagnitude, tempMagnitude, 
           Xc, Yc, Oc, blockNorm;
-    int x1 = 0, x2 = 0, y1 = 0, y2 = 0, bin1 = 0, descriptorIndex = 0;
-    size_t x, y, i, j, k, bin2;
+    float fCellHeightAndWidthInPixels = (float)cellHeightAndWidthInPixels;
+    int x1 = 0, x2 = 0, y1 = 0, y2 = 0, bin1 = 0, bin2 = 0;
+    size_t x, y, i, j, k, descriptorIndex = 0;
 
     vector<vector<vector<double> > > h(hist1, vector<vector<double> >
                                        (hist2, vector<double>
@@ -327,11 +328,11 @@ void DalalTriggsHOGdescriptor(double *inputImage,
 
             // choose dominant channel based on magnitude
             gradientMagnitude = sqrt(dx[0] * dx[0] + dy[0] * dy[0]);
-            gradientOrientation= atan2(dy[0], dx[0]);
+            gradientOrientation = atan2(dy[0], dx[0]);
             if (numberOfChannels > 1) {
                 tempMagnitude = gradientMagnitude;
                 for (size_t cli = 1; cli < numberOfChannels; ++cli) {
-                    tempMagnitude= sqrt(dx[cli] * dx[cli] + dy[cli] * dy[cli]);
+                    tempMagnitude = sqrt(dx[cli] * dx[cli] + dy[cli] * dy[cli]);
                     if (tempMagnitude > gradientMagnitude) {
                         gradientMagnitude = tempMagnitude;
                         gradientOrientation = atan2(dy[cli], dx[cli]);
@@ -343,15 +344,15 @@ void DalalTriggsHOGdescriptor(double *inputImage,
                 gradientOrientation += pi + signedOrUnsignedGradients * pi;
 
             // trilinear interpolation
-            bin1 = (gradientOrientation / binsSize) - 1;
+            bin1 = floor(0.5 + gradientOrientation / binsSize) - 1;
             bin2 = bin1 + 1;
-            x1   = x / cellHeightAndWidthInPixels;
+            x1   = floor(0.5 + x / fCellHeightAndWidthInPixels);
             x2   = x1 + 1;
-            y1   = y / cellHeightAndWidthInPixels;
+            y1   = floor(0.5 + y / fCellHeightAndWidthInPixels);
             y2   = y1 + 1;
 
-            Xc = (x1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
-            Yc = (y1 + 1 - 1.5) * cellHeightAndWidthInPixels + 0.5;
+            Xc = (x1 + 1 - 1.5) * fCellHeightAndWidthInPixels + 0.5;
+            Yc = (y1 + 1 - 1.5) * fCellHeightAndWidthInPixels + 0.5;
             Oc = (bin1 + 1 + 1 - 1.5) * binsSize;
 
             if (bin2 == numberOfOrientationBins)
@@ -360,38 +361,42 @@ void DalalTriggsHOGdescriptor(double *inputImage,
             if (bin1 < 0)
                 bin1 = numberOfOrientationBins - 1;
 
-            h[y1][x1][bin1] = h[y1][x1][bin1] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y1][x1][bin2] = h[y1][x1][bin2] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
-            h[y2][x1][bin1] = h[y2][x1][bin1] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y2][x1][bin2] = h[y2][x1][bin2] + gradientMagnitude *
-                              (1-((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
-            h[y1][x2][bin1] = h[y1][x2][bin1] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y1][x2][bin2] = h[y1][x2][bin2] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (1-((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
-            h[y2][x2][bin1] = h[y2][x2][bin1] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (1-((gradientOrientation-Oc)/binsSize));
-            h[y2][x2][bin2] = h[y2][x2][bin2] + gradientMagnitude *
-                              (((x+1-Xc)/cellHeightAndWidthInPixels)) *
-                              (((y+1-Yc)/cellHeightAndWidthInPixels)) *
-                              (((gradientOrientation-Oc)/binsSize));
+            double widthNorm = (x + 1 - Xc) / fCellHeightAndWidthInPixels;
+            double heightNorm = (y + 1 - Yc) / fCellHeightAndWidthInPixels;
+            double orientationInterp = (gradientOrientation - Oc) / binsSize;
+
+            h[y1][x1][bin1] = h[y1][x1][bin1] +
+                                gradientMagnitude *
+                                (1 - widthNorm) * (1 - heightNorm) *
+                                (1 - orientationInterp);
+            h[y1][x1][bin2] = h[y1][x1][bin2] +
+                                gradientMagnitude *
+                                (1 - widthNorm) * (1 - heightNorm) *
+                                orientationInterp;
+            h[y2][x1][bin1] = h[y2][x1][bin1] +
+                                gradientMagnitude *
+                                (1 - widthNorm) * heightNorm *
+                                (1 - orientationInterp);
+            h[y2][x1][bin2] = h[y2][x1][bin2] +
+                                gradientMagnitude *
+                                (1 - widthNorm) * heightNorm *
+                                orientationInterp;
+            h[y1][x2][bin1] = h[y1][x2][bin1] +
+                                gradientMagnitude *
+                                widthNorm * (1 - heightNorm) *
+                                (1 - orientationInterp);
+            h[y1][x2][bin2] = h[y1][x2][bin2] +
+                                gradientMagnitude *
+                                widthNorm * (1 - heightNorm) *
+                                orientationInterp;
+            h[y2][x2][bin1] = h[y2][x2][bin1] +
+                                gradientMagnitude *
+                                widthNorm * heightNorm *
+                                (1 - orientationInterp);
+            h[y2][x2][bin2] = h[y2][x2][bin2] +
+                                gradientMagnitude *
+                                widthNorm * heightNorm *
+                                orientationInterp;
         }
     }
 
@@ -412,7 +417,7 @@ void DalalTriggsHOGdescriptor(double *inputImage,
                             block[i][j][k] = h[y+i][x+j][k] / blockNorm;
                             if (block[i][j][k] > l2normClipping)
                                 block[i][j][k] = l2normClipping;
-                        } 
+                        }
                         else {
                             block[i][j][k] = 0;
                         }
