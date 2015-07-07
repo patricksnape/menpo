@@ -9,6 +9,6 @@ class WindowFeature {
 public:
 	WindowFeature();
 	virtual ~WindowFeature();
-	virtual void apply(double *windowImage, double *descriptorVector) = 0;
+	virtual void apply(const double *windowImage, double *descriptorVector) = 0;
 	size_t descriptorLengthPerWindow;
 };

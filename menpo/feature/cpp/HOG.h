@@ -22,42 +22,42 @@ using namespace std;
 
 class HOG: public WindowFeature {
 public:
-	HOG(size_t windowHeight,
-	    size_t windowWidth,
-	    size_t numberOfChannels,
-	    unsigned int method,
-	    size_t numberOfOrientationBins,
-	    size_t cellHeightAndWidthInPixels,
-	    size_t blockHeightAndWidthInCells,
-	    bool enableSignedGradients,
-	    double l2normClipping);
+	HOG(const size_t windowHeight,
+	    const size_t windowWidth,
+	    const size_t numberOfChannels,
+	    const unsigned int method,
+	    const size_t numberOfOrientationBins,
+	    const size_t cellHeightAndWidthInPixels,
+	    const size_t blockHeightAndWidthInCells,
+	    const bool enableSignedGradients,
+	    const double l2normClipping);
 	virtual ~HOG();
-	void apply(double *windowImage, double *descriptorVector);
+	void apply(const double *windowImage, double *descriptorVector);
 	size_t descriptorLengthPerBlock,
-	           numberOfBlocksPerWindowHorizontally,
-	           numberOfBlocksPerWindowVertically;
+	       numberOfBlocksPerWindowHorizontally,
+	       numberOfBlocksPerWindowVertically;
 private:
     size_t numberOfOrientationBins, cellHeightAndWidthInPixels,
-               blockHeightAndWidthInCells, windowHeight, windowWidth,
-               numberOfChannels;
+           blockHeightAndWidthInCells, windowHeight, windowWidth,
+           numberOfChannels;
     unsigned int method;
     bool enableSignedGradients;
     double l2normClipping;
 };
 
-void ZhuRamananHOGdescriptor(double *inputImage,
-                             size_t cellHeightAndWidthInPixels,
-                             size_t imageHeight,
-                             size_t imageWidth,
-                             size_t numberOfChannels,
+void ZhuRamananHOGdescriptor(const double *inputImage,
+                             const size_t cellHeightAndWidthInPixels,
+                             const size_t imageHeight,
+                             const size_t imageWidth,
+                             const size_t numberOfChannels,
                              double *descriptorMatrix);
-void DalalTriggsHOGdescriptor(double *inputImage,
-                              size_t numberOfOrientationBins,
-                              size_t cellHeightAndWidthInPixels,
-                              size_t blockHeightAndWidthInCells,
-                              bool signedOrUnsignedGradientsBool,
-                              double l2normClipping,
-                              size_t imageHeight,
-                              size_t imageWidth,
-                              size_t numberOfChannels,
+void DalalTriggsHOGdescriptor(const double *inputImage,
+                              const size_t numberOfOrientationBins,
+                              const size_t cellHeightAndWidthInPixels,
+                              const size_t blockHeightAndWidthInCells,
+                              const bool signedOrUnsignedGradientsBool,
+                              const double l2normClipping,
+                              const size_t imageHeight,
+                              const size_t imageWidth,
+                              const size_t numberOfChannels,
                               double *descriptorVector);
