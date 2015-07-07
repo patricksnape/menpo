@@ -3,15 +3,16 @@
 #include <math.h>
 #include <stdlib.h>
 
-ImageWindowIterator::ImageWindowIterator(double* _image,
-    size_t _imageHeight,
-    size_t _imageWidth,
-    size_t _numberOfChannels,
-	size_t _windowHeight,
-	size_t _windowWidth,
-	size_t _windowStepHorizontal,
-	size_t _windowStepVertical,
-	bool _enablePadding) :
+ImageWindowIterator::ImageWindowIterator(
+    const double* _image,
+    const size_t _imageHeight,
+    const size_t _imageWidth,
+    const size_t _numberOfChannels,
+	const size_t _windowHeight,
+	const size_t _windowWidth,
+	const size_t _windowStepHorizontal,
+	const size_t _windowStepVertical,
+	const bool _enablePadding) :
 	    imageHeight(_imageHeight), imageWidth(_imageWidth),
 	    numberOfChannels(_numberOfChannels), windowHeight(_windowHeight),
 	    windowWidth(_windowWidth), windowStepHorizontal(_windowStepHorizontal),
@@ -38,7 +39,7 @@ ImageWindowIterator::~ImageWindowIterator() {
 }
 
 
-void ImageWindowIterator::apply(double *outputImage, size_t *windowsCenters, WindowFeature *windowFeature) {
+void ImageWindowIterator::apply(WindowFeature *windowFeature, double *outputImage, size_t *windowsCenters) {
 	long long rowCenter, rowFrom, rowTo, columnCenter, columnFrom, columnTo, i, j, k, d;
 
     // Initialize temporary matrices

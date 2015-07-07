@@ -4,22 +4,22 @@
 class ImageWindowIterator {
 public:
 	size_t imageHeight, imageWidth,
-	           numberOfChannels, windowHeight, windowWidth,
-               windowStepHorizontal, windowStepVertical,
-               numberOfWindowsHorizontally, numberOfWindowsVertically;
+	       numberOfChannels, windowHeight, windowWidth,
+           windowStepHorizontal, windowStepVertical,
+           numberOfWindowsHorizontally, numberOfWindowsVertically;
     bool enablePadding;
-	ImageWindowIterator(double* _image,
-	                    size_t _imageHeight,
-	                    size_t _imageWidth,
-	                    size_t _numberOfChannels,
-	                    size_t _windowHeight,
-	                    size_t _windowWidth,
-	                    size_t _windowStepHorizontal,
-			            size_t _windowStepVertical,
-			            bool _enablePadding);
+	ImageWindowIterator(const double* _image,
+	                    const size_t _imageHeight,
+	                    const size_t _imageWidth,
+	                    const size_t _numberOfChannels,
+	                    const size_t _windowHeight,
+	                    const size_t _windowWidth,
+	                    const size_t _windowStepHorizontal,
+			            const size_t _windowStepVertical,
+			            const bool _enablePadding);
 	virtual ~ImageWindowIterator();
-	void apply(double *outputImage, size_t *windowsCenters,
-	           WindowFeature *windowFeature);
+	void apply(WindowFeature *windowFeature,
+	           double *outputImage, size_t *windowsCenters);
 private:
-	double* image;
+	const double* image;
 };
