@@ -1,9 +1,9 @@
 import numpy as np
-from scipy.sparse import block_diag, lil_matrix
-from scipy.spatial.distance import mahalanobis
+from scipy.sparse import block_diag, lil_matrix, csr_matrix
 
 from menpo.math import as_matrix
 from menpo.visualize import print_dynamic, progress_bar_str
+
 
 class GMRFModel(object):
     r"""
@@ -115,21 +115,35 @@ class GMRFModel(object):
 
     def mahalanobis_distance(self, instance, subtract_mean=True,
                              square_root=False):
-        # compute mahalanobis
+        return self.mahalanobis_distance_vector(instance.as_vector(),
+                                                subtract_mean=subtract_mean,
+                                                square_root=square_root)
+
+    def mahalanobis_distance_vector(self, vector_instance, subtract_mean=True,
+                                    square_root=False):
+        # create data vector
         if subtract_mean:
-            delta = instance.as_vector() - self.mean_vector
-            d = np.dot(np.dot(delta, self.precision), delta)
-            # d = mahalanobis(instance.as_vector(), self.mean_vector,
-            #                 self.precision)
-        else:
-            d = mahalanobis(instance.as_vector(),
-                            np.zeros_like(self.mean_vector), self.precision)
+            vector_instance = vector_instance - self.mean_vector
+
+        # make sure we have the correct data type
+        if self.sparse:
+            vector_instance = csr_matrix(vector_instance)
+
+        # compute mahalanobis
+        d = vector_instance.dot(self.precision).dot(vector_instance.T)
+
+        # if scipy.sparse, get the scalar value from the (1, 1) matrix
+        if self.sparse:
+            d = d[0, 0]
 
         # square root
         if square_root:
-            return d
+            return np.sqrt(d)
         else:
-            return d ** 2
+            return d
+
+    def eigenanalysis(self):
+        pass
 
     def __str__(self):
         svd_str = (' - # SVD components:        {}'.format(self.n_components)
