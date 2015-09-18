@@ -300,8 +300,8 @@ def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
             # v2, v2
             Q[v2_from:v2_to, v2_from:v2_to] += inv_cov
 
-        # convert Q to csr if sparse is enabled
-        if sparse:
-            return _compute_mean(X), Q.tocsr()
-        else:
-            return _compute_mean(X), Q
+    # convert Q to csr if sparse is enabled
+    if sparse:
+        return _compute_mean(X), Q.tocsr()
+    else:
+        return _compute_mean(X), Q
