@@ -2,7 +2,8 @@ import numpy as np
 from scipy.sparse import block_diag, lil_matrix, csr_matrix
 
 from menpo.math import as_matrix
-from menpo.visualize import print_dynamic, progress_bar_str
+from menpo.visualize import (print_dynamic, progress_bar_str, print_progress,
+                             bytes_str)
 
 
 class GMRFModel(object):
@@ -39,18 +40,27 @@ class GMRFModel(object):
         self.n_features = data.shape[1]
         self.n_features_per_vertex = self.n_features / graph.n_vertices
 
+        # compute mean vector
+        self.mean_vector = _compute_mean(data)
+
         # compute precision matrix
         if graph.n_edges == 0:
             # no edges on the graph, so create a block diagonal precision
-            self.mean_vector, self.precision = \
-                _compute_block_diagonal_precision_matrix(
-                    data, graph, self.n_features_per_vertex, single_precision,
-                    sparse, n_components, bias, verbose=verbose)
+            cov_list = _vertices_covariance_matrices(
+                data, graph, self.n_features_per_vertex, bias=bias,
+                verbose=verbose)
+            self.precision = _block_diagonal_precision_matrix(
+                cov_list, graph, single_precision=single_precision,
+                sparse=sparse, n_components=n_components, verbose=verbose)
         else:
             # graph has edges, so create sparse precision matrix
-            self.mean_vector, self.precision = _compute_sparse_precision_matrix(
-                data, graph, mode, self.n_features_per_vertex,
-                single_precision, sparse, n_components, bias, verbose=verbose)
+            cov_list = _edges_covariance_matrices(
+                data, graph, self.n_features_per_vertex, mode=mode, bias=bias,
+                verbose=verbose)
+            self.precision = _sparse_precision_matrix(
+                cov_list, graph, self.n_features_per_vertex, mode=mode,
+                single_precision=single_precision, sparse=sparse,
+                n_components=n_components, verbose=verbose)
 
         # assign arguments
         self.graph = graph
@@ -206,47 +216,8 @@ def _covariance_matrix_inverse(cov_mat, n_components):
             return np.linalg.inv(cov_mat)
 
 
-def _compute_block_diagonal_precision_matrix(X, graph, n_features_per_vertex,
-                                             single_precision, sparse,
-                                             n_components, bias, verbose=False):
-    # Compute covariance matrix for each patch
-    cov_list = []
-    for e in range(graph.n_vertices):
-        # print progress
-        if verbose:
-            print_dynamic('Distribution per vertex - {}'.format(
-                progress_bar_str((e + 1.) / graph.n_vertices, show_bar=False)))
-
-        # find indices in target precision matrix
-        i_from = e * n_features_per_vertex
-        i_to = (e + 1) * n_features_per_vertex
-
-        # compute covariance
-        edge_cov = np.cov(X[:, i_from:i_to], rowvar=0, bias=bias)
-
-        # invert covariance
-        inv_cov = _covariance_matrix_inverse(edge_cov, n_components)
-
-        # store covariance
-        cov_list.append(inv_cov)
-
-    # create final sparse covariance matrix
-    if sparse:
-        Q = block_diag(cov_list).tocsr()
-    else:
-        Q = block_diag(cov_list).todense()
-    if single_precision:
-        Q = np.require(Q, dtype=np.float32)
-
-    return _compute_mean(X), Q
-
-
-def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
-                                     single_precision, sparse, n_components,
-                                     bias, verbose=False):
-    # Initialize block sparse precision matrix
-    Q = _initialize_precision_matrix(X.shape[1], sparse, single_precision)
-
+def _edges_covariance_matrices(X, graph, n_features_per_vertex,
+                               mode='concatenation', bias=0, verbose=False):
     # Define function that formats the edge's data
     if mode == 'concatenation':
         generate_edge_data = lambda x1, x2: np.hstack((x1, x2))
@@ -256,16 +227,20 @@ def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
         raise ValueError("mode must be either ''concatenation'' "
                          "or ''subtraction''; {} is given.".format(mode))
 
-    # Compute covariance matrix for each edge
-    for e in range(graph.n_edges):
-        # print progress
-        if verbose:
-            print_dynamic('Distribution per edge - {}'.format(
-                progress_bar_str((e + 1.) / graph.n_edges, show_bar=False)))
+    # Print information if asked
+    if verbose:
+        edges = print_progress(
+            graph.edges, n_items=graph.n_edges, prefix='Covariance per edge',
+            end_with_newline=False)
+    else:
+        edges = graph.edges
 
+    # Compute covariance matrix for each edge
+    cov_list = []
+    for e in edges:
         # edge vertices
-        v1 = graph.edges[e, 0]
-        v2 = graph.edges[e, 1]
+        v1 = e[0]
+        v2 = e[1]
 
         # find indices in target precision matrix
         v1_from = v1 * n_features_per_vertex
@@ -276,11 +251,95 @@ def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
         # data concatenation
         edge_data = generate_edge_data(X[:, v1_from:v1_to], X[:, v2_from:v2_to])
 
+        # compute covariance matrix and store it
+        cov_list.append(np.cov(edge_data, rowvar=0, bias=bias))
+
+    return cov_list
+
+
+def _vertices_covariance_matrices(X, graph, n_features_per_vertex, bias=0,
+                                  verbose=False):
+    # Print information if asked
+    if verbose:
+        vertices = print_progress(
+            range(graph.n_vertices), n_items=graph.n_vertices,
+            prefix='Covariance per vertex', end_with_newline=False)
+    else:
+        vertices = range(graph.n_vertices)
+
+    # Compute covariance matrix for each patch
+    cov_list = []
+    for v in vertices:
+        # find indices in target precision matrix
+        i_from = v * n_features_per_vertex
+        i_to = (v + 1) * n_features_per_vertex
+
         # compute covariance
-        edge_cov = np.cov(edge_data, rowvar=0, bias=bias)
+        cov_list.append(np.cov(X[:, i_from:i_to], rowvar=0, bias=bias))
+
+    return cov_list
+
+
+def _block_diagonal_precision_matrix(cov_list, graph, single_precision=False,
+                                     sparse=True, n_components=None,
+                                     verbose=False):
+    # Print information if asked
+    if verbose:
+        vertices = print_progress(
+            range(graph.n_vertices), n_items=graph.n_vertices,
+            prefix='Building precision matrix')
+    else:
+        vertices = range(graph.n_vertices)
+
+    # Invert and store covariance matrix for each patch
+    inv_cov_list = []
+    for v in vertices:
+        inv_cov = _covariance_matrix_inverse(cov_list[v], n_components)
+        if single_precision:
+            inv_cov = np.require(inv_cov, dtype=np.float32)
+        inv_cov_list.append(inv_cov)
+
+    # create final sparse covariance matrix
+    if sparse:
+        Q = block_diag(inv_cov_list).tocsr()
+    else:
+        Q = block_diag(inv_cov_list).todense()
+
+    return Q
+
+
+def _sparse_precision_matrix(cov_list, graph, n_features_per_vertex,
+                             mode='concatenation', single_precision=False,
+                             sparse=True, n_components=None, verbose=False):
+    # Initialize block sparse precision matrix
+    n_features = n_features_per_vertex * graph.n_vertices
+    Q = _initialize_precision_matrix(n_features, sparse, single_precision)
+    if verbose and not sparse:
+        print('Allocated precision matrix of size {}'.format(
+            bytes_str(Q.nbytes)))
+
+    # Print information if asked
+    if verbose:
+        edges = print_progress(
+            range(graph.n_edges), n_items=graph.n_edges,
+            prefix='Building precision matrix')
+    else:
+        edges = range(graph.n_edges)
+
+    # Store inverse of covariance matrix for each edge
+    for e in edges:
+        # edge vertices
+        v1 = graph.edges[e, 0]
+        v2 = graph.edges[e, 1]
+
+        # find indices in target precision matrix
+        v1_from = v1 * n_features_per_vertex
+        v1_to = (v1 + 1) * n_features_per_vertex
+        v2_from = v2 * n_features_per_vertex
+        v2_to = (v2 + 1) * n_features_per_vertex
 
         # invert covariance
-        inv_cov = _covariance_matrix_inverse(edge_cov, n_components)
+        inv_cov = _covariance_matrix_inverse(cov_list[e], n_components)
 
         # insert to precision matrix
         if mode == 'concatenation':
@@ -308,11 +367,25 @@ def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
 
     # convert Q to csr if sparse is enabled
     if sparse:
-        return _compute_mean(X), Q.tocsr()
+        return Q.tocsr()
     else:
-        return _compute_mean(X), Q
+        return Q
 
-def update_multivariate_gaussian(X, m, S, n, bias=0):
+
+def update_multivariate_gaussian_mean(X, m, n):
+    # Get new number of samples
+    new_n = X.shape[0]
+
+    # Update mean vector
+    # m_{new} = (n m + \sum_{i=1}^{n_{new}} x_i) / (n + n_{new})
+    # where: m       -> old mean vector
+    #        n_{new} -> new number of samples
+    #        n       -> old number of samples
+    #        x_i     -> new data vectors
+    return (n * m + np.sum(X, axis=0)) / (n + new_n)
+
+
+def update_multivariate_gaussian_cov(X, m, S, n, bias=0):
     # Get new number of samples
     new_n = X.shape[0]
 
@@ -323,7 +396,7 @@ def update_multivariate_gaussian(X, m, S, n, bias=0):
     #        n_{new} -> new number of samples
     #        n       -> old number of samples
     #        x_i     -> new data vectors
-    new_m = (n * m + np.sum(X, axis=0)) / (n + new_n)
+    new_m = update_multivariate_gaussian_mean(X, m, n)
 
     # Select the normalization value
     if bias == 1:
