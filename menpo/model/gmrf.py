@@ -21,9 +21,14 @@ class GMRFModel(object):
         If provided then ``samples``  must be an iterator that yields
         ``n_samples``. If not provided then samples has to be a `list` (so we
         know how large the data matrix needs to be).
+    bias : int, optional
+        Default normalization is by ``(N - 1)``, where ``N`` is the number of
+        observations given (unbiased estimate). If `bias` is 1, then
+        normalization is by ``N``. These values can be overridden by using
+        the keyword ``ddof`` in numpy versions >= 1.5.
      """
     def __init__(self, samples, graph, mode='concatenation', n_components=None,
-                 single_precision=False, sparse=True, n_samples=None,
+                 single_precision=False, sparse=True, n_samples=None, bias=0,
                  verbose=False):
         # build a data matrix from all the samples
         data, self.template_instance = as_matrix(
@@ -40,12 +45,12 @@ class GMRFModel(object):
             self.mean_vector, self.precision = \
                 _compute_block_diagonal_precision_matrix(
                     data, graph, self.n_features_per_vertex, single_precision,
-                    sparse, n_components, verbose=verbose)
+                    sparse, n_components, bias, verbose=verbose)
         else:
             # graph has edges, so create sparse precision matrix
             self.mean_vector, self.precision = _compute_sparse_precision_matrix(
                 data, graph, mode, self.n_features_per_vertex,
-                single_precision, sparse, n_components, verbose=verbose)
+                single_precision, sparse, n_components, bias, verbose=verbose)
 
         # assign arguments
         self.graph = graph
@@ -53,6 +58,7 @@ class GMRFModel(object):
         self.n_components = n_components
         self.sparse = sparse
         self.single_precision = single_precision
+        self.bias = bias
 
     def mean(self):
         r"""
@@ -202,7 +208,7 @@ def _covariance_matrix_inverse(cov_mat, n_components):
 
 def _compute_block_diagonal_precision_matrix(X, graph, n_features_per_vertex,
                                              single_precision, sparse,
-                                             n_components, verbose=False):
+                                             n_components, bias, verbose=False):
     # Compute covariance matrix for each patch
     cov_list = []
     for e in range(graph.n_vertices):
@@ -216,7 +222,7 @@ def _compute_block_diagonal_precision_matrix(X, graph, n_features_per_vertex,
         i_to = (e + 1) * n_features_per_vertex
 
         # compute covariance
-        edge_cov = np.cov(X[:, i_from:i_to].T)
+        edge_cov = np.cov(X[:, i_from:i_to], rowvar=0, bias=bias)
 
         # invert covariance
         inv_cov = _covariance_matrix_inverse(edge_cov, n_components)
@@ -237,7 +243,7 @@ def _compute_block_diagonal_precision_matrix(X, graph, n_features_per_vertex,
 
 def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
                                      single_precision, sparse, n_components,
-                                     verbose=False):
+                                     bias, verbose=False):
     # Initialize block sparse precision matrix
     Q = _initialize_precision_matrix(X.shape[1], sparse, single_precision)
 
@@ -271,7 +277,7 @@ def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
         edge_data = generate_edge_data(X[:, v1_from:v1_to], X[:, v2_from:v2_to])
 
         # compute covariance
-        edge_cov = np.cov(edge_data.T)
+        edge_cov = np.cov(edge_data, rowvar=0, bias=bias)
 
         # invert covariance
         inv_cov = _covariance_matrix_inverse(edge_cov, n_components)
@@ -305,3 +311,33 @@ def _compute_sparse_precision_matrix(X, graph, mode, n_features_per_vertex,
         return _compute_mean(X), Q.tocsr()
     else:
         return _compute_mean(X), Q
+
+def update_multivariate_gaussian(X, m, S, n, bias=0):
+    # Get new number of samples
+    new_n = X.shape[0]
+
+    # Update mean vector
+    # m_{new} = (n m + \sum_{i=1}^{n_{new}} x_i) / (n + n_{new})
+    # where: m_{new} -> new mean vector
+    #        m       -> old mean vector
+    #        n_{new} -> new number of samples
+    #        n       -> old number of samples
+    #        x_i     -> new data vectors
+    new_m = (n * m + np.sum(X, axis=0)) / (n + new_n)
+
+    # Select the normalization value
+    if bias == 1:
+        k = n
+    elif bias == 0:
+        k = n - 1
+    else:
+        raise ValueError("bias must be either 0 or 1")
+
+    # Update covariance matrix
+    # S__{new} = (k S + n m^T m + X^T X - (n + n_{new}) m_{new}^T m_{new})
+    #                                                            / (k + n_{new})
+    m1 = n * m[None, :].T.dot(m[None, :])
+    m2 = (n + new_n) * new_m[None, :].T.dot(new_m[None, :])
+    new_S = (k * S + m1 + X.T.dot(X) - m2) / (k + new_n)
+
+    return new_m, new_S
