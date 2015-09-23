@@ -1,12 +1,13 @@
 from __future__ import division
 import numpy as np
 from menpo.math import pca, ipca, as_matrix
-from menpo.model.base import MeanInstanceLinearModel
+from menpo.model import MeanLinearModel
+from menpo.model.instancebacked import InstanceBackedModel
 
 
-class PCAModel(MeanInstanceLinearModel):
+class PCAModel(MeanLinearModel):
     r"""
-    A :map:`MeanInstanceLinearModel` where components are Principal
+    A :map:`MeanLinearModel` where components are Principal
     Components.
 
     Principal Component Analysis (PCA) by eigenvalue decomposition of the
@@ -15,33 +16,57 @@ class PCAModel(MeanInstanceLinearModel):
 
     Parameters
     ----------
-    samples : `list` or `iterable` of :map:`Vectorizable`
-        List or iterable of samples to build the model from.
+    samples : `ndarray` or `list` or `iterable` of `ndarray`
+        List or iterable of numpy arrays to build the model from, or an
+        existing data matrix.
     centre : `bool`, optional
         When ``True`` (default) PCA is performed after mean centering the data.
         If ``False`` the data is assumed to be centred, and the mean will be
         ``0``.
     n_samples : `int`, optional
-        If provided then ``samples``  must be an iterator that yields
+        If provided then ``samples`` must be an iterator that yields
         ``n_samples``. If not provided then samples has to be a `list` (so we
         know how large the data matrix needs to be).
+    max_n_components : `int`, optional
+        The maximum number of components to keep in the model. Any components
+        above and beyond this one are discarded.
+    inplace : `bool`, optional
+        If ``True`` the data matrix is modified in place. Otherwise, the data
+        matrix is copied.
      """
-    def __init__(self, samples, centre=True, n_samples=None, verbose=False):
+    def __init__(self, data, centre=True, n_samples=None, max_n_components=None,
+                 inplace=True):
         # build a data matrix from all the samples
-        data, template = as_matrix(samples, length=n_samples,
-                                   return_template=True, verbose=verbose)
-        # (n_samples, n_features)
-        self.n_samples = data.shape[0]
+        if n_samples is None:
+            n_samples = len(data)
+        # Assumed data is ndarray of (n_samples, n_features) or list of samples
+        if not isinstance(data, np.ndarray):
+            # Make sure we have an array, slice of the number of requested
+            # samples
+            data = np.array(data)[:n_samples]
+        self.n_samples = n_samples
 
         # compute pca
-        e_vectors, e_values, mean = pca(data, centre=centre, inplace=True)
+        e_vectors, e_values, mean = pca(data, centre=centre, inplace=inplace)
 
-        super(PCAModel, self).__init__(e_vectors, mean, template)
+        MeanLinearModel.__init__(self, e_vectors, mean)
         self.centred = centre
         self._eigenvalues = e_values
         # start the active components as all the components
         self._n_active_components = int(self.n_components)
         self._trimmed_eigenvalues = np.array([])
+
+        if max_n_components is not None:
+            self.trim_components(max_n_components)
+
+    def mean(self):
+        r"""
+        Return the mean of the model. For this model, returns the same result
+        as ``mean_vector``.
+
+        :type: `ndarray`
+        """
+        return self.mean_vector
 
     @property
     def n_active_components(self):
@@ -74,7 +99,7 @@ class PCAModel(MeanInstanceLinearModel):
                    "0.0 < n_components < self._total_kept_variance_ratio "
                    "({}) or an integer 1 < n_components < "
                    "self.n_components ({})".format(
-                   value, self._total_variance_ratio(), self.n_components))
+            value, self._total_variance_ratio(), self.n_components))
 
         # check value
         if isinstance(value, float):
@@ -104,7 +129,7 @@ class PCAModel(MeanInstanceLinearModel):
         else:
             raise ValueError(err_str)
 
-    @MeanInstanceLinearModel.components.getter
+    @MeanLinearModel.components.getter
     def components(self):
         r"""
         Returns the active components of the model.
@@ -421,12 +446,13 @@ class PCAModel(MeanInstanceLinearModel):
 
     def project_whitened(self, instance):
         """
-        Projects the `instance` onto the whitened components, retrieving the 
-        whitened linear weightings.
+        Projects the `instance` onto the whitened components, retrieving the
+        whitened linear weightings. For this model, returns the same result
+        as `project_whitened_vector`
 
         Parameters
         ----------
-        instance : :map:`Vectorizable`
+        instance : `ndarray`
             A novel instance.
 
         Returns
@@ -434,11 +460,11 @@ class PCAModel(MeanInstanceLinearModel):
         projected : (n_components,)
             A vector of whitened linear weightings
         """
-        return self.project_whitened_vector(instance.as_vector())
+        return self.project_whitened_vector(instance)
 
     def project_whitened_vector(self, vector_instance):
         """
-        Projects the `vector_instance` onto the whitened components, 
+        Projects the `vector_instance` onto the whitened components,
         retrieving the whitened linear weightings.
 
         Parameters
@@ -1027,4 +1053,191 @@ class PCAModel(MeanInstanceLinearModel):
             self.variance(), self.variance_ratio(), self.noise_variance(),
             self.noise_variance_ratio(), self.n_components,
             self.components.shape)
+        return str_out
+
+
+class PCAInstanceModel(PCAModel, InstanceBackedModel):
+    r"""
+    A :map:`MeanInstanceLinearModel` where components are Principal
+    Components.
+
+    Principal Component Analysis (PCA) by eigenvalue decomposition of the
+    data's scatter matrix. For details of the implementation of PCA, see
+    :map:`pca`.
+
+    Parameters
+    ----------
+    samples : `list` or `iterable` of :map:`Vectorizable`
+        List or iterable of samples to build the model from.
+    centre : `bool`, optional
+        When ``True`` (default) PCA is performed after mean centering the data.
+        If ``False`` the data is assumed to be centred, and the mean will be
+        ``0``.
+    n_samples : `int`, optional
+        If provided then ``samples``  must be an iterator that yields
+        ``n_samples``. If not provided then samples has to be a `list` (so we
+        know how large the data matrix needs to be).
+    max_n_components : `int`, optional
+        The maximum number of components to keep in the model. Any components
+        above and beyond this one are discarded.
+    inplace : `bool`, optional
+        If ``True`` the data matrix is modified in place. Otherwise, the data
+        matrix is copied.
+    verbose : `bool`, optional
+        Whether to print building information or not.
+     """
+    def __init__(self, samples, centre=True, n_samples=None,
+                 max_n_components=None, inplace=True, verbose=False):
+        # build a data matrix from all the samples
+        data, template = as_matrix(samples, length=n_samples,
+                                   return_template=True, verbose=verbose)
+        n_samples = data.shape[0]
+
+        PCAModel.__init__(self, data, centre=centre,
+                          max_n_components=max_n_components,
+                          n_samples=n_samples, inplace=inplace)
+        InstanceBackedModel.__init__(self, template)
+
+    def mean(self):
+        r"""
+        Return the mean of the model.
+
+        :type: :map:`Vectorizable`
+        """
+        return self.template_instance.from_vector(self.mean_vector)
+
+    def component(self, index, with_mean=True, scale=1.0):
+        r"""
+        Return a particular component of the linear model.
+
+        Parameters
+        ----------
+        index : `int`
+            The component that is to be returned
+        with_mean: `bool`, optional
+            If ``True``, the component will be blended with the mean vector
+            before being returned. If not, the component is returned on it's
+            own.
+        scale : `float`, optional
+            A scale factor that should be applied to the component. Only
+            valid in the case where ``with_mean == True``. See
+            :meth:`component_vector` for how this scale factor is interpreted.
+
+        Returns
+        -------
+        component : `type(self.template_instance)`
+            The requested component.
+        """
+        return self.template_instance.from_vector(self.component_vector(
+            index, with_mean=with_mean, scale=scale))
+
+    def instance(self, weights, normalized_weights=False):
+        """
+        Creates a new instance of the model using the first ``len(weights)``
+        components.
+
+        Parameters
+        ----------
+        weights : ``(n_weights,)`` `ndarray` or `list`
+            ``weights[i]`` is the linear contribution of the i'th component
+            to the instance vector.
+        normalized_weights : `bool`, optional
+            If ``True``, the weights are assumed to be normalized w.r.t the
+            eigenvalues. This can be easier to create unique instances by
+            making the weights more interpretable.
+        Raises
+        ------
+        ValueError
+            If n_weights > n_components
+
+        Returns
+        -------
+        instance : `type(self.template_instance)`
+            An instance of the model.
+        """
+        v = self.instance_vector(weights, normalized_weights=normalized_weights)
+        return self.template_instance.from_vector(v)
+
+    def project_whitened(self, instance):
+        """
+        Projects the `instance` onto the whitened components, retrieving the 
+        whitened linear weightings.
+
+        Parameters
+        ----------
+        instance : :map:`Vectorizable`
+            A novel instance.
+
+        Returns
+        -------
+        projected : (n_components,)
+            A vector of whitened linear weightings
+        """
+        return self.project_whitened_vector(instance.as_vector())
+
+    def increment(self, samples, n_samples=None, forgetting_factor=1.0,
+                  verbose=False):
+        r"""
+        Update the eigenvectors, eigenvalues and mean vector of this model
+        by performing incremental PCA on the given samples.
+
+        Parameters
+        ----------
+        samples : `list` of :map:`Vectorizable`
+            List of new samples to update the model from.
+        n_samples : `int`, optional
+            If provided then ``samples``  must be an iterator that yields
+            ``n_samples``. If not provided then samples has to be a
+            list (so we know how large the data matrix needs to be).
+        forgetting_factor : ``[0.0, 1.0]`` `float`, optional
+            Forgetting factor that weights the relative contribution of new
+            samples vs old samples. If 1.0, all samples are weighted equally
+            and, hence, the results is the exact same as performing batch
+            PCA on the concatenated list of old and new simples. If <1.0,
+            more emphasis is put on the new samples. See [1] for details.
+
+        References
+        ----------
+        .. [1] David Ross, Jongwoo Lim, Ruei-Sung Lin, Ming-Hsuan Yang.
+           "Incremental Learning for Robust Visual Tracking". IJCV, 2007.
+        """
+        # build a data matrix from the new samples
+        data = as_matrix(samples, length=n_samples, verbose=verbose)
+        # (n_samples, n_features)
+        n_new_samples = data.shape[0]
+
+        # compute incremental pca
+        e_vectors, e_values, m_vector = ipca(
+            data, self._components, self._eigenvalues, self.n_samples,
+            m_a=self.mean_vector, f=forgetting_factor)
+
+        # if the number of active components is the same as the total number
+        # of components so it will be after this method is executed
+        reset = (self.n_active_components == self.n_components)
+
+        # update mean, components, eigenvalues and number of samples
+        self.mean_vector = m_vector
+        self._components = e_vectors
+        self._eigenvalues = e_values
+        self.n_samples += n_new_samples
+
+        # reset the number of active components to the total number of
+        # components
+        if reset:
+            self.n_active_components = self.n_components
+
+    def __str__(self):
+        str_out = 'PCA Instance Model \n'                    \
+                  ' - instance class:       {}\n'            \
+                  ' - centred:              {}\n'            \
+                  ' - # features:           {}\n'            \
+                  ' - # active components:  {}\n'            \
+                  ' - kept variance:        {:.2}  {:.1%}\n' \
+                  ' - noise variance:       {:.2}  {:.1%}\n' \
+                  ' - total # components:   {}\n'            \
+                  ' - components shape:     {}\n'.format(
+            type(self.template_instance), self.centred,  self.n_features,
+            self.n_active_components, self.variance(), self.variance_ratio(),
+            self.noise_variance(), self.noise_variance_ratio(),
+            self.n_components, self.components.shape)
         return str_out

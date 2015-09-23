@@ -137,7 +137,6 @@ class LinearModel(Copyable):
                 "components = {}".format(self.n_components))
         return self._instance_vectors_for_full_weights(weights)
 
-    # TODO check this is right
     def _instance_vectors_for_full_weights(self, full_weights):
         return np.dot(full_weights, self.components)
 
@@ -241,8 +240,8 @@ class LinearModel(Copyable):
         projected_out : ``(n_vectors, n_features)`` `ndarray`
             A copy of `vectors` with all basis of the model projected out.
         """
-        weights = np.dot(vectors, self.components.T)
-        return vectors - np.dot(weights, self.components)
+        weights = self.project_vectors(vectors)
+        return vectors - self._instance_vectors_for_full_weights(weights)
 
     def orthonormalize_inplace(self):
         r"""
