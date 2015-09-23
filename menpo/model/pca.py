@@ -1,7 +1,7 @@
 from __future__ import division
 import numpy as np
 
-from menpo.math import pca, ipca, as_matrix
+from menpo.math import pca, pcacov, ipca, as_matrix
 from menpo.model import MeanLinearModel
 from menpo.model.instancebacked import InstanceBackedModel
 
@@ -33,7 +33,7 @@ class PCAModel(MeanLinearModel):
     inplace : `bool`, optional
         If ``True`` the data matrix is modified in place. Otherwise, the data
         matrix is copied.
-     """
+    """
     def __init__(self, data, centre=True, n_samples=None, max_n_components=None,
                  inplace=True):
         data, self.n_samples = self._data_to_matrix(data, n_samples)
@@ -43,6 +43,39 @@ class PCAModel(MeanLinearModel):
 
         MeanLinearModel.__init__(self, e_vectors, mean)
         self.centred = centre
+        self._eigenvalues = e_values
+        # start the active components as all the components
+        self._n_active_components = int(self.n_components)
+        self._trimmed_eigenvalues = np.array([])
+
+        if max_n_components is not None:
+            self.trim_components(max_n_components)
+
+    def init_from_covariance_matrix(self, C, mean, centred=True,
+                                    max_n_components=None):
+        r"""
+        Build the Principal Component Analysis (PCA) by eigenvalue
+        decomposition of the provided covariance/scatter matrix. For details
+        of the implementation of PCA, see :map:`pcacov`.
+
+        Parameters
+        ----------
+        C : ``(N, N)`` `ndarray`
+            The Covariance/Scatter matrix, where `N` is the number of features.
+        mean : ``(N, )`` `ndarray`
+            The mean vector.
+        centred : `bool`, optional
+            When ``True`` we assume that the data where centered before
+            computing the covariance matrix.
+        max_n_components : `int`, optional
+            The maximum number of components to keep in the model. Any
+            components above and beyond this one are discarded.
+        """
+        # compute pca on covariance
+        e_vectors, e_values = pcacov(C)
+
+        MeanLinearModel.__init__(self, e_vectors, mean)
+        self.centred = centred
         self._eigenvalues = e_values
         # start the active components as all the components
         self._n_active_components = int(self.n_components)
