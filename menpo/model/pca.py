@@ -1,5 +1,6 @@
 from __future__ import division
 import numpy as np
+
 from menpo.math import pca, ipca, as_matrix
 from menpo.model import MeanLinearModel
 from menpo.model.instancebacked import InstanceBackedModel
@@ -7,8 +8,7 @@ from menpo.model.instancebacked import InstanceBackedModel
 
 class PCAModel(MeanLinearModel):
     r"""
-    A :map:`MeanLinearModel` where components are Principal
-    Components.
+    A :map:`MeanLinearModel` where components are Principal Components.
 
     Principal Component Analysis (PCA) by eigenvalue decomposition of the
     data's scatter matrix. For details of the implementation of PCA, see
@@ -70,6 +70,32 @@ class PCAModel(MeanLinearModel):
         :type: `ndarray`
         """
         return self.mean_vector
+
+    def component(self, index, with_mean=True, scale=1.0):
+        r"""
+        Return a particular component of the linear model. For this model,
+        returns the same result as ``component_vector``.
+
+        Parameters
+        ----------
+        index : `int`
+            The component that is to be returned
+        with_mean: `bool`, optional
+            If ``True``, the component will be blended with the mean vector
+            before being returned. If not, the component is returned on it's
+            own.
+        scale : `float`, optional
+            A scale factor that should be applied to the component. Only
+            valid in the case where ``with_mean == True``. See
+            :meth:`component_vector` for how this scale factor is interpreted.
+
+        Returns
+        -------
+        component : `type(self.template_instance)`
+            The requested component.
+        """
+        return self.component_vector(index=index, with_mean=with_mean,
+                                     scale=scale)
 
     @property
     def n_active_components(self):
@@ -1124,8 +1150,7 @@ class PCAModel(MeanLinearModel):
 
 class PCAInstanceModel(PCAModel, InstanceBackedModel):
     r"""
-    A :map:`MeanInstanceLinearModel` where components are Principal
-    Components.
+    A :map:`MeanInstanceLinearModel` where components are Principal Components.
 
     Principal Component Analysis (PCA) by eigenvalue decomposition of the
     data's scatter matrix. For details of the implementation of PCA, see
