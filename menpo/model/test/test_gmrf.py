@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.testing import assert_allclose, assert_equal, assert_almost_equal
+from numpy.testing import assert_almost_equal, assert_array_almost_equal
 
 from menpo.shape import PointCloud, DirectedGraph, UndirectedGraph
 from menpo.math import as_matrix
@@ -113,3 +113,47 @@ def test_mahalanobis_distance():
                             cost2 = gmrf.mahalanobis_distance(
                                 test_sample, subtract_mean=subtract_mean)
                             assert_almost_equal(cost1, cost2)
+
+def test_increment():
+    # arguments values
+    mode_values = ['concatenation', 'subtraction']
+    n_features_per_vertex_values = [2, 3]
+    sparse_values = [True, False]
+    n_components_values = [None, 30]
+
+    # create graph
+    n_vertices = 6
+    edges = np.array([[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0]])
+    graphs = [DirectedGraph.init_from_edges(edges, n_vertices),
+              UndirectedGraph(np.zeros((n_vertices, n_vertices)))]
+
+    for n_features_per_vertex in n_features_per_vertex_values:
+        # create samples
+        n_samples = 100
+        samples = []
+        for i in range(n_samples):
+            samples.append(PointCloud(np.random.rand(n_vertices,
+                                                     n_features_per_vertex)))
+
+        for graph in graphs:
+            for mode in mode_values:
+                for sparse in sparse_values:
+                    for n_components in n_components_values:
+                        # Incremental GMRF
+                        gmrf1 = GMRFModel(
+                            samples[:50], graph, mode=mode, sparse=sparse,
+                            n_components=n_components, single_precision=False,
+                            incremental=True)
+                        gmrf1.increment(samples[50::])
+
+                        # Non incremental GMRF
+                        gmrf2 = GMRFModel(
+                            samples, graph, mode=mode, sparse=sparse,
+                            n_components=n_components, single_precision=False)
+
+                        # Compare
+                        if sparse:
+                            assert_array_almost_equal(gmrf1.precision.todense(),
+                                                      gmrf2.precision.todense())
+                        assert_array_almost_equal(gmrf1.mean_vector,
+                                                  gmrf2.mean_vector)
