@@ -36,15 +36,7 @@ class PCAModel(MeanLinearModel):
      """
     def __init__(self, data, centre=True, n_samples=None, max_n_components=None,
                  inplace=True):
-        # build a data matrix from all the samples
-        if n_samples is None:
-            n_samples = len(data)
-        # Assumed data is ndarray of (n_samples, n_features) or list of samples
-        if not isinstance(data, np.ndarray):
-            # Make sure we have an array, slice of the number of requested
-            # samples
-            data = np.array(data)[:n_samples]
-        self.n_samples = n_samples
+        data, self.n_samples = self._data_to_matrix(data, n_samples)
 
         # compute pca
         e_vectors, e_values, mean = pca(data, centre=centre, inplace=inplace)
@@ -58,6 +50,17 @@ class PCAModel(MeanLinearModel):
 
         if max_n_components is not None:
             self.trim_components(max_n_components)
+
+    def _data_to_matrix(self, data, n_samples):
+        # build a data matrix from all the samples
+        if n_samples is None:
+            n_samples = len(data)
+        # Assumed data is ndarray of (n_samples, n_features) or list of samples
+        if not isinstance(data, np.ndarray):
+            # Make sure we have an array, slice of the number of requested
+            # samples
+            data = np.array(data)[:n_samples]
+        return data, n_samples
 
     def mean(self):
         r"""
@@ -593,7 +596,7 @@ class PCAModel(MeanLinearModel):
         # now we can set our own components with the updated orthogonal ones
         self.components = Q[linear_model.n_components:, :]
 
-    def increment(self, samples, n_samples=None, forgetting_factor=1.0,
+    def increment(self, data, n_samples=None, forgetting_factor=1.0,
                   verbose=False):
         r"""
         Update the eigenvectors, eigenvalues and mean vector of this model
@@ -619,10 +622,7 @@ class PCAModel(MeanLinearModel):
         .. [1] David Ross, Jongwoo Lim, Ruei-Sung Lin, Ming-Hsuan Yang.
            "Incremental Learning for Robust Visual Tracking". IJCV, 2007.
         """
-        # build a data matrix from the new samples
-        data = as_matrix(samples, length=n_samples, verbose=verbose)
-        # (n_samples, n_features)
-        n_new_samples = data.shape[0]
+        data, n_new_samples = self._data_to_matrix(data, n_samples)
 
         # compute incremental pca
         e_vectors, e_values, m_vector = ipca(
@@ -1269,28 +1269,9 @@ class PCAInstanceModel(PCAModel, InstanceBackedModel):
         """
         # build a data matrix from the new samples
         data = as_matrix(samples, length=n_samples, verbose=verbose)
-        # (n_samples, n_features)
         n_new_samples = data.shape[0]
-
-        # compute incremental pca
-        e_vectors, e_values, m_vector = ipca(
-            data, self._components, self._eigenvalues, self.n_samples,
-            m_a=self.mean_vector, f=forgetting_factor)
-
-        # if the number of active components is the same as the total number
-        # of components so it will be after this method is executed
-        reset = (self.n_active_components == self.n_components)
-
-        # update mean, components, eigenvalues and number of samples
-        self.mean_vector = m_vector
-        self._components = e_vectors
-        self._eigenvalues = e_values
-        self.n_samples += n_new_samples
-
-        # reset the number of active components to the total number of
-        # components
-        if reset:
-            self.n_active_components = self.n_components
+        PCAModel.increment(self, data, n_samples=n_new_samples,
+                           forgetting_factor=forgetting_factor, verbose=verbose)
 
     def __str__(self):
         str_out = 'PCA Instance Model \n'                    \
