@@ -361,7 +361,7 @@ class PCAModel(MeanLinearModel):
         else:
             return self.components[index]
 
-    def instance_vectors(self, weights):
+    def instance_vectors(self, weights, normalized_weights=False):
         """
         Creates new vectorized instances of the model using the first
         components in a particular weighting.
@@ -377,6 +377,10 @@ class PCAModel(MeanLinearModel):
             that if ``n_weights < n_components``, only the first ``n_weight``
             components are used in the reconstruction (i.e. unspecified
             weights are implicitly ``0``).
+        normalized_weights : `bool`, optional
+            If ``True``, the weights are assumed to be normalized w.r.t the
+            eigenvalues. This can be easier to create unique instances by
+            making the weights more interpretable.
 
         Returns
         -------
@@ -399,7 +403,69 @@ class PCAModel(MeanLinearModel):
                                     dtype=self._components.dtype)
             full_weights[..., :n_weights] = weights
             weights = full_weights
+
+        if normalized_weights:
+            # If the weights were normalized, then they are all relative to
+            # to the scale of the eigenvalues and thus must be multiplied by
+            # the sqrt of the eigenvalues.
+            weights *= self.eigenvalues ** 0.5
         return self._instance_vectors_for_full_weights(weights)
+
+    def instance_vector(self, weights, normalized_weights=False):
+        r"""
+        Creates a new vector instance of the model by weighting together the
+        components.
+
+        Parameters
+        ----------
+        weights : ``(n_weights,)`` `ndarray` or `list`
+            The weightings for the first `n_weights` components that should be
+            used.
+
+            ``weights[j]`` is the linear contribution of the j'th principal
+            component to the instance vector.
+        normalized_weights : `bool`, optional
+            If ``True``, the weights are assumed to be normalized w.r.t the
+            eigenvalues. This can be easier to create unique instances by
+            making the weights more interpretable.
+
+        Returns
+        -------
+        vector : ``(n_features,)`` `ndarray`
+            The instance vector for the weighting provided.
+        """
+        weights = np.asarray(weights)
+        return self.instance_vectors(
+            weights[None, :], normalized_weights=normalized_weights).flatten()
+
+    def instance(self, weights, normalized_weights=False):
+        """
+        Creates a new instance of the model using the first ``len(weights)``
+        components. For this model, calling this method returns the same result
+        as ``instance_vector``.
+
+        Parameters
+        ----------
+        weights : ``(n_weights,)`` `ndarray` or `list`
+            ``weights[i]`` is the linear contribution of the i'th component
+            to the instance vector.
+        normalized_weights : `bool`, optional
+            If ``True``, the weights are assumed to be normalized w.r.t the
+            eigenvalues. This can be easier to create unique instances by
+            making the weights more interpretable.
+
+        Raises
+        ------
+        ValueError
+            If n_weights > n_components
+
+        Returns
+        -------
+        instance : `ndarray`
+            An instance of the model.
+        """
+        return self.instance_vector(weights,
+                                    normalized_weights=normalized_weights)
 
     def trim_components(self, n_components=None):
         r"""
