@@ -92,14 +92,14 @@ def test_pca_trim():
 
 @raises(ValueError)
 def test_pca_trim_variance_limit():
-    samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
+    samples = [np.random.randn(10) for _ in range(10)]
     model = PCAModel(samples)
     # impossible to keep more than 1.0 ratio variance
     model.trim_components(2.5)
 
 @raises(ValueError)
 def test_pca_trim_variance_limit():
-    samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
+    samples = [np.random.randn(10) for _ in range(10)]
     model = PCAModel(samples)
     # impossible to keep more than 1.0 ratio variance
     model.trim_components(2.5)
@@ -108,7 +108,7 @@ def test_pca_trim_variance_limit():
 @raises(ValueError)
 def test_pca_trim_negative_integers():
     samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
-    model = PCAModel(samples)
+    model = PCAInstanceModel(samples)
     # no negative number of components
     model.trim_components(-2)
 
@@ -116,7 +116,7 @@ def test_pca_trim_negative_integers():
 @raises(ValueError)
 def test_pca_trim_negative_float():
     samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
-    model = PCAModel(samples)
+    model = PCAInstanceModel(samples)
     # no negative number of components
     model.trim_components(-2)
 
