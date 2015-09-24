@@ -152,7 +152,7 @@ def pcacov(C, eps=1e-10):
 
     Returns
     -------
-    U (eigenvectors) : ``(``(n_components, n_dims)``)`` `ndarray`
+    U (eigenvectors) : ``(n_components, n_dims)`` `ndarray`
         Eigenvectors of the data matrix.
     l (eigenvalues) : ``(n_components,)`` `ndarray`
         Positive eigenvalues of the data matrix.

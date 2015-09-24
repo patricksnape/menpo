@@ -204,22 +204,86 @@ class GMRFModel(object):
     samples : `ndarray` or `list` or `iterable` of `ndarray`
         List or iterable of numpy arrays to build the model from, or an
         existing data matrix.
-    centre : `bool`, optional
-        When ``True`` (default) PCA is performed after mean centering the data.
-        If ``False`` the data is assumed to be centred, and the mean will be
-        ``0``.
+    graph : :map:`UndirectedGraph` or :map:`DirectedGraph` or :map:`Tree`
+        The graph that defines the relations between the features.
     n_samples : `int`, optional
         If provided then ``samples``  must be an iterator that yields
         ``n_samples``. If not provided then samples has to be a `list` (so we
         know how large the data matrix needs to be).
-    bias : int, optional
+    mode : ``{'concatenation', 'subtraction'}``, optional
+        Defines the feature vector of each edge. Assuming that
+        :math:`\mathbf{x}_i` and :math:`\mathbf{x}_j` are the feature vectors
+        of two adjacent vertices (:math:`i,j:(v_i,v_j)\in E`), then the edge's
+        feature vector in the case of ``'concatenation'`` is
+
+        .. math::
+           \left[{\mathbf{x}_i}^T, {\mathbf{x}_j}^T\right]^T
+
+        and in the case of ``'subtraction'``
+
+        .. math::
+           \mathbf{x}_i - \mathbf{x}_j
+
+    n_components : `int` or ``None``, optional
+        When ``None`` (default), the covariance matrix of each edge is inverted
+        using `np.linalg.inv`. If `int`, it is inverted using truncated SVD
+        using the specified number of compnents.
+    single_precision : `bool`, optional
+        When ``True``, the GMRF's precision matrix will have `np.float32`
+        precision, else it will be `np.float64`.
+    sparse : `bool`, optional
+        When ``True``, the GMRF's precision matrix has type
+        `scipy.sparse.csr_matrix`, otherwise it is a `numpy.array`.
+    bias : `int`, optional
         Default normalization is by ``(N - 1)``, where ``N`` is the number of
         observations given (unbiased estimate). If `bias` is 1, then
         normalization is by ``N``. These values can be overridden by using
         the keyword ``ddof`` in numpy versions >= 1.5.
-     """
-    def __init__(self, samples, graph, mode='concatenation', n_components=None,
-                 single_precision=False, sparse=True, n_samples=None, bias=0,
+    incremental : `bool`, optional
+        This argument must be set to ``True`` in case the user wants to
+        incrementally update the GMRF. Note that if ``True``, the model
+        occupies 2x memory.
+    verbose : `bool`, optional
+        If ``True``, the progress of the model's training is printed.
+
+    Notes
+    -----
+    Let us denote a graph as :math:`G=(V,E)`, where
+    :math:`V=\{v_i,v_2,\ldots, v_{|V|}\}` is the set of :math:`|V|` vertices and
+    there is an edge :math:`(v_i,v_j)\in E` for each pair of connected vertices.
+    Let us also assume that we have a set of random variables
+    :math:`X=\{X_i\}, \forall i:v_i\in V`, which represent an abstract feature
+    vector of length :math:`k` extracted from each vertex :math:`v_i`, i.e.
+    :math:`\mathbf{x}_i,i:v_i\in V`.
+
+    A GMRF is described by an undirected graph, where the vertexes stand for
+    random variables and the edges impose statistical constraints on these
+    random variables. Thus, the GMRF models the set of random variables with
+    a multivariate normal distribution
+
+    .. math::
+       p(X=\mathbf{x}|G)\sim\mathcal{N}(\boldsymbol{\mu},\boldsymbol{\Sigma})
+
+    We denote by :math:`\mathbf{Q}` the block-sparse precision matrix that is
+    the inverse of the covariance matrix :math:`\boldsymbol{\Sigma}`, i.e.
+    :math:`\mathbf{Q}=\boldsymbol{\Sigma}^{-1}`.  By applying the GMRF we make
+    the assumption that the random variables satisfy the three Markov
+    properties (pairwise, local and global) and that the blocks of the
+    precision matrix that correspond to disjoint vertexes are zero, i.e.
+
+    .. math::
+       \mathbf{Q}_{ij}=\mathbf{0}_{k\times k},\forall i,j:(v_i,v_j)\notin E
+
+    References
+    ----------
+    .. [1] H. Rue, and L. Held. "Gaussian Markov random fields: theory and
+       applications," CRC Press, 2005.
+    .. [2] E. Antonakos, J. Alabort-i-Medina, and S. Zafeiriou. "Active
+       Pictorial Structures", IEEE International Conference on Computer Vision
+       & Pattern Recognition (CVPR), Boston, MA, USA, June 2015.
+    """
+    def __init__(self, samples, graph, n_samples=None, mode='concatenation',
+                 n_components=None, single_precision=False, sparse=True, bias=0,
                  incremental=False, verbose=False):
         # Generate data matrix
         # (n_samples, n_features)
@@ -293,28 +357,21 @@ class GMRFModel(object):
 
     def increment(self, samples, n_samples=None, verbose=False):
         r"""
-        Update the eigenvectors, eigenvalues and mean vector of this model
-        by performing incremental PCA on the given samples.
+        Update the mean and precision matrix of the GMRF by updating the
+        distributions of all the edges.
 
         Parameters
         ----------
-        samples : `list` of :map:`Vectorizable`
-            List of new samples to update the model from.
+        samples : `ndarray` or `list` or `iterable` of `ndarray`
+            List or iterable of numpy arrays to build the model from, or an
+            existing data matrix.
         n_samples : `int`, optional
             If provided then ``samples``  must be an iterator that yields
             ``n_samples``. If not provided then samples has to be a
             list (so we know how large the data matrix needs to be).
-        forgetting_factor : ``[0.0, 1.0]`` `float`, optional
-            Forgetting factor that weights the relative contribution of new
-            samples vs old samples. If 1.0, all samples are weighted equally
-            and, hence, the results is the exact same as performing batch
-            PCA on the concatenated list of old and new simples. If <1.0,
-            more emphasis is put on the new samples. See [1] for details.
-
-        References
-        ----------
-        .. [1] David Ross, Jongwoo Lim, Ruei-Sung Lin, Ming-Hsuan Yang.
-           "Incremental Learning for Robust Visual Tracking". IJCV, 2007.
+        verbose : `bool`, optional
+            If ``True``, the progress of the model's incremental update is
+            printed.
         """
         # Check if it can be incrementally updated
         if not self.is_incremental:
@@ -358,6 +415,22 @@ class GMRFModel(object):
 
     def mahalanobis_distance(self, sample, subtract_mean=True,
                              square_root=False):
+        r"""
+        Compute the mahalanobis distance given a new sample :math:`\mathbf{x}`,
+        i.e.
+
+        .. math::
+           \sqrt{(\mathbf{x}-\boldsymbol{\mu})^T \mathbf{Q} (\mathbf{x}-\boldsymbol{\mu})}
+
+        Parameters
+        ----------
+        sample : `ndarray`
+            The new data vector.
+        subtract_mean : `bool`, optional
+            When ``True``, the mean vector is subtracted from the data vector.
+        square_root : `bool`, optional
+            If ``False``, the mahalanobis distance gets squared.
+        """
         return self._mahalanobis_distance(
             sample=sample, subtract_mean=subtract_mean, square_root=square_root)
 
@@ -528,20 +601,84 @@ class GMRFInstanceModel(GMRFModel):
     ----------
     samples : `list` or `iterable` of :map:`Vectorizable`
         List or iterable of samples to build the model from.
-    centre : `bool`, optional
-        When ``True`` (default) PCA is performed after mean centering the data.
-        If ``False`` the data is assumed to be centred, and the mean will be
-        ``0``.
+    graph : :map:`UndirectedGraph` or :map:`DirectedGraph` or :map:`Tree`
+        The graph that defines the relations between the features.
     n_samples : `int`, optional
         If provided then ``samples``  must be an iterator that yields
         ``n_samples``. If not provided then samples has to be a `list` (so we
         know how large the data matrix needs to be).
-    bias : int, optional
+    mode : ``{'concatenation', 'subtraction'}``, optional
+        Defines the feature vector of each edge. Assuming that
+        :math:`\mathbf{x}_i` and :math:`\mathbf{x}_j` are the feature vectors
+        of two adjacent vertices (:math:`i,j:(v_i,v_j)\in E`), then the edge's
+        feature vector in the case of ``'concatenation'`` is
+
+        .. math::
+           \left[{\mathbf{x}_i}^T, {\mathbf{x}_j}^T\right]^T
+
+        and in the case of ``'subtraction'``
+
+        .. math::
+           \mathbf{x}_i - \mathbf{x}_j
+
+    n_components : `int` or ``None``, optional
+        When ``None`` (default), the covariance matrix of each edge is inverted
+        using `np.linalg.inv`. If `int`, it is inverted using truncated SVD
+        using the specified number of compnents.
+    single_precision : `bool`, optional
+        When ``True``, the GMRF's precision matrix will have `np.float32`
+        precision, else it will be `np.float64`.
+    sparse : `bool`, optional
+        When ``True``, the GMRF's precision matrix has type
+        `scipy.sparse.csr_matrix`, otherwise it is a `numpy.array`.
+    bias : `int`, optional
         Default normalization is by ``(N - 1)``, where ``N`` is the number of
         observations given (unbiased estimate). If `bias` is 1, then
         normalization is by ``N``. These values can be overridden by using
         the keyword ``ddof`` in numpy versions >= 1.5.
-     """
+    incremental : `bool`, optional
+        This argument must be set to ``True`` in case the user wants to
+        incrementally update the GMRF. Note that if ``True``, the model
+        occupies 2x memory.
+    verbose : `bool`, optional
+        If ``True``, the progress of the model's training is printed.
+
+    Notes
+    -----
+    Let us denote a graph as :math:`G=(V,E)`, where
+    :math:`V=\{v_i,v_2,\ldots, v_{|V|}\}` is the set of :math:`|V|` vertices and
+    there is an edge :math:`(v_i,v_j)\in E` for each pair of connected vertices.
+    Let us also assume that we have a set of random variables
+    :math:`X=\{X_i\}, \forall i:v_i\in V`, which represent an abstract feature
+    vector of length :math:`k` extracted from each vertex :math:`v_i`, i.e.
+    :math:`\mathbf{x}_i,i:v_i\in V`.
+
+    A GMRF is described by an undirected graph, where the vertexes stand for
+    random variables and the edges impose statistical constraints on these
+    random variables. Thus, the GMRF models the set of random variables with
+    a multivariate normal distribution
+
+    .. math::
+       p(X=\mathbf{x}|G)\sim\mathcal{N}(\boldsymbol{\mu},\boldsymbol{\Sigma})
+
+    We denote by :math:`\mathbf{Q}` the block-sparse precision matrix that is
+    the inverse of the covariance matrix :math:`\boldsymbol{\Sigma}`, i.e.
+    :math:`\mathbf{Q}=\boldsymbol{\Sigma}^{-1}`.  By applying the GMRF we make
+    the assumption that the random variables satisfy the three Markov
+    properties (pairwise, local and global) and that the blocks of the
+    precision matrix that correspond to disjoint vertexes are zero, i.e.
+
+    .. math::
+       \mathbf{Q}_{ij}=\mathbf{0}_{k\times k},\forall i,j:(v_i,v_j)\notin E
+
+    References
+    ----------
+    .. [1] H. Rue, and L. Held. "Gaussian Markov random fields: theory and
+       applications," CRC Press, 2005.
+    .. [2] E. Antonakos, J. Alabort-i-Medina, and S. Zafeiriou. "Active
+       Pictorial Structures", IEEE International Conference on Computer Vision
+       & Pattern Recognition (CVPR), Boston, MA, USA, June 2015.
+    """
     def __init__(self, samples, graph, mode='concatenation', n_components=None,
                  single_precision=False, sparse=True, n_samples=None, bias=0,
                  incremental=False, verbose=False):
@@ -566,28 +703,20 @@ class GMRFInstanceModel(GMRFModel):
 
     def increment(self, samples, n_samples=None, verbose=False):
         r"""
-        Update the eigenvectors, eigenvalues and mean vector of this model
-        by performing incremental PCA on the given samples.
+        Update the mean and precision matrix of the GMRF by updating the
+        distributions of all the edges.
 
         Parameters
         ----------
-        samples : `list` of :map:`Vectorizable`
-            List of new samples to update the model from.
+        samples : `list` or `iterable` of :map:`Vectorizable`
+            List or iterable of samples to build the model from.
         n_samples : `int`, optional
             If provided then ``samples``  must be an iterator that yields
             ``n_samples``. If not provided then samples has to be a
             list (so we know how large the data matrix needs to be).
-        forgetting_factor : ``[0.0, 1.0]`` `float`, optional
-            Forgetting factor that weights the relative contribution of new
-            samples vs old samples. If 1.0, all samples are weighted equally
-            and, hence, the results is the exact same as performing batch
-            PCA on the concatenated list of old and new simples. If <1.0,
-            more emphasis is put on the new samples. See [1] for details.
-
-        References
-        ----------
-        .. [1] David Ross, Jongwoo Lim, Ruei-Sung Lin, Ming-Hsuan Yang.
-           "Incremental Learning for Robust Visual Tracking". IJCV, 2007.
+        verbose : `bool`, optional
+            If ``True``, the progress of the model's incremental update is
+            printed.
         """
         # Check if it can be incrementally updated
         if not self.is_incremental:
@@ -601,6 +730,22 @@ class GMRFInstanceModel(GMRFModel):
 
     def mahalanobis_distance(self, instance, subtract_mean=True,
                              square_root=False):
+        r"""
+        Compute the mahalanobis distance given a new sample :math:`\mathbf{x}`,
+        i.e.
+
+        .. math::
+           \sqrt{(\mathbf{x}-\boldsymbol{\mu})^T \mathbf{Q} (\mathbf{x}-\boldsymbol{\mu})}
+
+        Parameters
+        ----------
+        sample : `ndarray`
+            The new data vector.
+        subtract_mean : `bool`, optional
+            When ``True``, the mean vector is subtracted from the data vector.
+        square_root : `bool`, optional
+            If ``False``, the mahalanobis distance gets squared.
+        """
         return self._mahalanobis_distance(
             sample=instance.as_vector(), subtract_mean=subtract_mean,
             square_root=square_root)
