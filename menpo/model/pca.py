@@ -36,22 +36,19 @@ class PCAModel(MeanLinearModel):
     """
     def __init__(self, data, centre=True, n_samples=None, max_n_components=None,
                  inplace=True):
+        # Generate data matrix
         data, self.n_samples = self._data_to_matrix(data, n_samples)
 
-        # compute pca
+        # Compute pca
         e_vectors, e_values, mean = pca(data, centre=centre, inplace=inplace)
 
-        MeanLinearModel.__init__(self, e_vectors, mean)
-        self.centred = centre
-        self._eigenvalues = e_values
-        # start the active components as all the components
-        self._n_active_components = int(self.n_components)
-        self._trimmed_eigenvalues = np.array([])
+        # The call to __init__ of MeanLinearModel is done in here
+        self._constructor_helper(
+            eigenvalues=e_values, eigenvectors=e_vectors, mean=mean,
+            centred=centre, max_n_components=max_n_components)
 
-        if max_n_components is not None:
-            self.trim_components(max_n_components)
-
-    def init_from_covariance_matrix(self, C, mean, centred=True,
+    @classmethod
+    def init_from_covariance_matrix(cls, C, mean, n_samples, centred=True,
                                     max_n_components=None):
         r"""
         Build the Principal Component Analysis (PCA) by eigenvalue
@@ -64,23 +61,41 @@ class PCAModel(MeanLinearModel):
             The Covariance/Scatter matrix, where `N` is the number of features.
         mean : ``(N, )`` `ndarray`
             The mean vector.
+        n_samples : `int`
+            The number of samples used to generate the covariance matrix.
         centred : `bool`, optional
-            When ``True`` we assume that the data where centered before
+            When ``True`` we assume that the data were centered before
             computing the covariance matrix.
         max_n_components : `int`, optional
             The maximum number of components to keep in the model. Any
             components above and beyond this one are discarded.
         """
-        # compute pca on covariance
+        # Compute pca on covariance
         e_vectors, e_values = pcacov(C)
 
-        MeanLinearModel.__init__(self, e_vectors, mean)
+        # Create new pca instance
+        model = PCAModel.__new__(cls)
+        model.n_samples = n_samples
+
+        # The call to __init__ of MeanLinearModel is done in here
+        model._constructor_helper(
+            eigenvalues=e_values, eigenvectors=e_vectors, mean=mean,
+            centred=centred, max_n_components=max_n_components)
+        return model
+
+    def _constructor_helper(self, eigenvalues, eigenvectors, mean, centred,
+                            max_n_components):
+        # if covariance is not centred, mean must be zeros.
+        if centred:
+            MeanLinearModel.__init__(self, eigenvectors, mean)
+        else:
+            MeanLinearModel.__init__(self, eigenvectors,
+                                     np.zeros(mean.shape, dtype=mean.dtype))
         self.centred = centred
-        self._eigenvalues = e_values
+        self._eigenvalues = eigenvalues
         # start the active components as all the components
         self._n_active_components = int(self.n_components)
         self._trimmed_eigenvalues = np.array([])
-
         if max_n_components is not None:
             self.trim_components(max_n_components)
 
@@ -1221,6 +1236,44 @@ class PCAInstanceModel(PCAModel, InstanceBackedModel):
                           max_n_components=max_n_components,
                           n_samples=n_samples, inplace=inplace)
         InstanceBackedModel.__init__(self, template)
+
+    @classmethod
+    def init_from_covariance_matrix(cls, C, mean, n_samples, centred=True,
+                                    max_n_components=None):
+        r"""
+        Build the Principal Component Analysis (PCA) by eigenvalue
+        decomposition of the provided covariance/scatter matrix. For details
+        of the implementation of PCA, see :map:`pcacov`.
+
+        Parameters
+        ----------
+        C : ``(N, N)`` `ndarray`
+            The Covariance/Scatter matrix, where `N` is the number of features.
+        mean : :map:`Vectorizable`
+            The mean vector.
+        n_samples : `int`
+            The number of samples used to generate the covariance matrix.
+        centred : `bool`, optional
+            When ``True`` we assume that the data were centered before
+            computing the covariance matrix.
+        max_n_components : `int`, optional
+            The maximum number of components to keep in the model. Any
+            components above and beyond this one are discarded.
+        """
+        # Create new pca instance
+        model = PCAInstanceModel.__new__(cls)
+        model.n_samples = n_samples
+
+        # Compute pca on covariance
+        e_vectors, e_values = pcacov(C)
+
+        # The call to __init__ of MeanLinearModel is done in here
+        model._constructor_helper(eigenvalues=e_values,
+                                  eigenvectors=e_vectors, mean=mean.as_vector(),
+                                  centred=centred,
+                                  max_n_components=max_n_components)
+        InstanceBackedModel.__init__(model, mean)
+        return model
 
     def mean(self):
         r"""
