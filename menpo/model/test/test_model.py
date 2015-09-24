@@ -1,8 +1,10 @@
 import numpy as np
 from nose.tools import raises
-from numpy.testing import assert_allclose, assert_equal, assert_almost_equal
+from numpy.testing import (assert_allclose, assert_equal, assert_almost_equal,
+                           assert_array_almost_equal)
 from menpo.shape import PointCloud
 from menpo.model import LinearModel, PCAModel, PCAInstanceModel
+from menpo.math import as_matrix
 
 
 def test_linear_model_creation():
@@ -224,3 +226,107 @@ def test_pca_increment_noncentred():
                         np.abs(bpca_model.components))
     assert_almost_equal(ipca_model.eigenvalues, bpca_model.eigenvalues)
     assert_almost_equal(ipca_model.mean_vector, bpca_model.mean_vector)
+
+
+def test_pca_init_from_covariance():
+    n_samples = 30
+    n_features = 10
+    centre_values = [True, False]
+    for centre in centre_values:
+        # generate samples matrix and mean vector
+        samples = np.random.randn(n_samples, n_features)
+        mean = np.mean(samples, axis=0)
+        # compute covariance matrix
+        if centre:
+            X = samples - mean
+            C = np.dot(X.T, X) / (n_samples - 1)
+        else:
+            C = np.dot(samples.T, samples) / (n_samples - 1)
+        # create the 2 pca models
+        pca1 = PCAModel.init_from_covariance_matrix(C, mean, centred=centre,
+                                                    n_samples=n_samples)
+        pca2 = PCAModel(samples, centre=centre, inplace=False)
+        # compare them
+        assert_array_almost_equal(pca1.mean_vector, pca2.mean_vector)
+        assert_array_almost_equal(pca1.mean(), pca2.mean())
+        assert_array_almost_equal(pca1.component_vector(0, with_mean=False),
+                                  pca2.component_vector(0, with_mean=False))
+        assert_array_almost_equal(pca1.component(7), pca2.component(7))
+        assert_array_almost_equal(pca1.components, pca2.components)
+        assert_array_almost_equal(pca1.eigenvalues, pca2.eigenvalues)
+        assert_array_almost_equal(pca1.eigenvalues_cumulative_ratio(),
+                                  pca2.eigenvalues_cumulative_ratio())
+        assert_array_almost_equal(pca1.eigenvalues_ratio(),
+                                  pca2.eigenvalues_ratio())
+        weights = np.random.randn(pca1.n_active_components)
+        assert_array_almost_equal(pca1.instance(weights),
+                                  pca2.instance(weights))
+        weights2 = np.random.randn(pca1.n_active_components - 4)
+        assert_array_almost_equal(pca1.instance_vector(weights2),
+                                  pca2.instance_vector(weights2))
+        assert(pca1.n_active_components == pca2.n_active_components)
+        assert(pca1.n_components == pca2.n_components)
+        assert(pca1.n_features == pca2.n_features)
+        assert(pca1.n_samples == pca2.n_samples)
+        assert(pca1.noise_variance() == pca2.noise_variance())
+        assert(pca1.noise_variance_ratio() == pca2.noise_variance_ratio())
+        assert(pca1.variance() == pca2.variance())
+        assert(pca1.variance_ratio() == pca2.variance_ratio())
+        assert_array_almost_equal(pca1.whitened_components(),
+                                  pca2.whitened_components())
+
+
+def test_pca_instance_init_from_covariance():
+    n_samples = 30
+    n_features = 10
+    n_dims = 2
+    centre_values = [True, False]
+    for centre in centre_values:
+        # generate samples list and convert it to nd.array
+        samples = [PointCloud(np.random.randn(n_features, n_dims))
+                   for _ in range(n_samples)]
+        data, template = as_matrix(samples, return_template=True)
+        # compute covariance matrix and mean
+        if centre:
+            mean_vector = np.mean(data, axis=0)
+            mean = template.from_vector(mean_vector)
+            X = data - mean_vector
+            C = np.dot(X.T, X) / (n_samples - 1)
+        else:
+            mean = samples[0]
+            C = np.dot(data.T, data) / (n_samples - 1)
+        # create the 2 pca models
+        pca1 = PCAInstanceModel.init_from_covariance_matrix(C, mean,
+                                                            centred=centre,
+                                                            n_samples=n_samples)
+        pca2 = PCAInstanceModel(samples, centre=centre)
+        # compare them
+        assert_array_almost_equal(pca1.component_vector(0, with_mean=False),
+                                  pca2.component_vector(0, with_mean=False))
+        assert_array_almost_equal(pca1.component(7).as_vector(),
+                                  pca2.component(7).as_vector())
+        assert_array_almost_equal(pca1.components, pca2.components)
+        assert_array_almost_equal(pca1.eigenvalues, pca2.eigenvalues)
+        assert_array_almost_equal(pca1.eigenvalues_cumulative_ratio(),
+                                  pca2.eigenvalues_cumulative_ratio())
+        assert_array_almost_equal(pca1.eigenvalues_ratio(),
+                                  pca2.eigenvalues_ratio())
+        weights = np.random.randn(pca1.n_active_components)
+        assert_array_almost_equal(pca1.instance(weights).as_vector(),
+                                  pca2.instance(weights).as_vector())
+        weights2 = np.random.randn(pca1.n_active_components - 4)
+        assert_array_almost_equal(pca1.instance_vector(weights2),
+                                  pca2.instance_vector(weights2))
+        assert_array_almost_equal(pca1.mean_vector, pca2.mean_vector)
+        assert_array_almost_equal(pca1.mean().as_vector(),
+                                  pca2.mean().as_vector())
+        assert(pca1.n_active_components == pca2.n_active_components)
+        assert(pca1.n_components == pca2.n_components)
+        assert(pca1.n_features == pca2.n_features)
+        assert(pca1.n_samples == pca2.n_samples)
+        assert(pca1.noise_variance() == pca2.noise_variance())
+        assert(pca1.noise_variance_ratio() == pca2.noise_variance_ratio())
+        assert(pca1.variance() == pca2.variance())
+        assert(pca1.variance_ratio() == pca2.variance_ratio())
+        assert_array_almost_equal(pca1.whitened_components(),
+                                  pca2.whitened_components())
