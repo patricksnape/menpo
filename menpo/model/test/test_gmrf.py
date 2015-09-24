@@ -4,7 +4,7 @@ from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from menpo.shape import PointCloud, DirectedGraph, UndirectedGraph
 from menpo.math import as_matrix
 
-from .. import GMRFModel
+from .. import GMRFModel, GMRFInstanceModel
 
 def _compute_sum_cost_block_sparse(samples, test_sample, graph,
                                    n_features_per_vertex, subtract_mean, mode):
@@ -96,7 +96,7 @@ def test_mahalanobis_distance():
                 for sparse in sparse_values:
                     for n_components in n_components_values:
                         # train GMRF
-                        gmrf = GMRFModel(
+                        gmrf = GMRFInstanceModel(
                             samples, graph, mode=mode, sparse=sparse,
                             n_components=n_components, single_precision=False)
 
@@ -132,8 +132,7 @@ def test_increment():
         n_samples = 100
         samples = []
         for i in range(n_samples):
-            samples.append(PointCloud(np.random.rand(n_vertices,
-                                                     n_features_per_vertex)))
+            samples.append(np.random.rand(n_vertices * n_features_per_vertex))
 
         for graph in graphs:
             for mode in mode_values:

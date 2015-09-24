@@ -34,10 +34,10 @@ class PCAModel(MeanLinearModel):
         If ``True`` the data matrix is modified in place. Otherwise, the data
         matrix is copied.
     """
-    def __init__(self, data, centre=True, n_samples=None, max_n_components=None,
-                 inplace=True):
+    def __init__(self, samples, centre=True, n_samples=None,
+                 max_n_components=None, inplace=True):
         # Generate data matrix
-        data, self.n_samples = self._data_to_matrix(data, n_samples)
+        data, self.n_samples = self._data_to_matrix(samples, n_samples)
 
         # Compute pca
         e_vectors, e_values, mean = pca(data, centre=centre, inplace=inplace)
