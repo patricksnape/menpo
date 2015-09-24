@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse.linalg import inv as scipy_inv
 
 from menpo.math import as_matrix
 from menpo.visualize import print_progress, bytes_str
@@ -283,8 +284,8 @@ class GMRFModel(object):
        & Pattern Recognition (CVPR), Boston, MA, USA, June 2015.
     """
     def __init__(self, samples, graph, n_samples=None, mode='concatenation',
-                 n_components=None, single_precision=False, sparse=True, bias=0,
-                 incremental=False, verbose=False):
+                 n_components=None, single_precision=False, sparse=True,
+                 bias=0, incremental=False, verbose=False):
         # Generate data matrix
         # (n_samples, n_features)
         data, self.n_samples = self._data_to_matrix(samples, n_samples)
@@ -456,8 +457,52 @@ class GMRFModel(object):
         else:
             return d
 
-    def eigenanalysis(self):
-        pass
+    def covariance(self):
+        r"""
+        Returns covariance matrix of the GMRF. This includes computing
+        the **inverse of the precision matrix**, which can be expensive
+        time-wise and memory-wise.
+
+        :type: `ndarray` or `scipy.sparse`
+        """
+        if self.sparse:
+            return scipy_inv(self.precision)
+        else:
+            return np.linalg.inv(self.precision)
+
+    def principal_components_analysis(self, apply_on_precision=False,
+                                      max_n_components=None):
+        r"""
+        Returns a :map:`PCAModel` with the Principal Components. The
+        eigenvalue decomposition can be applied either on the precision or
+        the covariance of the GMRF.
+
+        Parameters
+        ----------
+        apply_on_precision : `bool`, optional
+            If ``True``, the eigenvalue decomposition is performed on the
+            precision matrix. If ``False``, it is performed on the covariance
+            matrix.
+        max_n_components : `int` or ``None``, optional
+            The maximum number of principal components. If ``None``, all the
+            components are returned.
+
+        Returns
+        -------
+        pca : :map:`PCAModel`
+            The PCA model.
+        """
+        from .pca import PCAModel
+        if apply_on_precision:
+            return PCAModel.init_from_covariance_matrix(
+                C=self.precision, mean=self.mean_vector,
+                n_samples=self.n_samples, centred=True,
+                max_n_components=max_n_components)
+        else:
+            return PCAModel.init_from_covariance_matrix(
+                C=self.covariance(), mean=self.mean_vector,
+                n_samples=self.n_samples, centred=True,
+                max_n_components=max_n_components)
 
     def _initialize_precision_matrix(self, verbose=False):
         # select data type
@@ -749,3 +794,36 @@ class GMRFInstanceModel(GMRFModel):
         return self._mahalanobis_distance(
             sample=instance.as_vector(), subtract_mean=subtract_mean,
             square_root=square_root)
+
+    def principal_components_analysis(self, apply_on_precision=False,
+                                      max_n_components=None):
+        r"""
+        Returns a :map:`PCAInstanceModel` with the Principal Components. The
+        eigenvalue decomposition can be applied either on the precision or
+        the covariance of the GMRF.
+
+        Parameters
+        ----------
+        apply_on_precision : `bool`, optional
+            If ``True``, the eigenvalue decomposition is performed on the
+            precision matrix. If ``False``, it is performed on the covariance
+            matrix.
+        max_n_components : `int` or ``None``, optional
+            The maximum number of principal components. If ``None``, all the
+            components are returned.
+
+        Returns
+        -------
+        pca : :map:`PCAInstanceModel`
+            The PCA model.
+        """
+        from .pca import PCAInstanceModel
+        if apply_on_precision:
+            return PCAInstanceModel.init_from_covariance_matrix(
+                C=self.precision, mean=self.mean(), n_samples=self.n_samples,
+                centred=True, max_n_components=max_n_components)
+        else:
+            return PCAInstanceModel.init_from_covariance_matrix(
+                C=self.covariance(), mean=self.mean(),
+                n_samples=self.n_samples, centred=True,
+                max_n_components=max_n_components)
