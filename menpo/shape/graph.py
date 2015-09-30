@@ -249,7 +249,11 @@ class Graph(object):
             graph = UndirectedGraph.init_from_edges(edges, n_vertices=6)
 
         """
-        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges, n_vertices)
+        if edges.shape[0] == 0 or edges is None:
+            adjacency_matrix = np.zeros((n_vertices, n_vertices))
+        else:
+            adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
+                                                                  n_vertices)
         return cls(adjacency_matrix, copy=False, skip_checks=skip_checks)
 
     @property
@@ -789,8 +793,11 @@ class UndirectedGraph(Graph):
             graph = UndirectedGraph.init_from_edges(edges, n_vertices=6)
 
         """
-        adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
-            edges, n_vertices)
+        if edges.shape[0] == 0 or edges is None:
+            adjacency_matrix = np.zeros((n_vertices, n_vertices))
+        else:
+            adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
+                edges, n_vertices)
         return cls(adjacency_matrix, copy=False, skip_checks=skip_checks)
 
     @property
@@ -1607,8 +1614,12 @@ class PointGraph(Graph, PointCloud):
             graph = PointUndirectedGraph.init_from_edges(points, edges)
 
         """
-        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
-                                                              points.shape[0])
+        n_vertices = points.shape[0]
+        if edges.shape[0] == 0 or edges is None:
+            adjacency_matrix = np.zeros((n_vertices, n_vertices))
+        else:
+            adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
+                                                                  n_vertices)
         return cls(points, adjacency_matrix, copy=copy, skip_checks=skip_checks)
 
     def tojson(self):
@@ -1972,8 +1983,12 @@ class PointUndirectedGraph(PointGraph, UndirectedGraph):
             graph = PointUndirectedGraph.init_from_edges(points, edges)
 
         """
-        adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
-            edges, points.shape[0])
+        n_vertices = points.shape[0]
+        if edges.shape[0] == 0 or edges is None:
+            adjacency_matrix = np.zeros((n_vertices, n_vertices))
+        else:
+            adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
+                edges, n_vertices)
         return cls(points, adjacency_matrix, copy=copy, skip_checks=skip_checks)
 
     def from_mask(self, mask):
@@ -2390,8 +2405,12 @@ class PointTree(PointDirectedGraph, Tree):
                               [4, 7], [5, 8]])
             tree = PointTree.init_from_edges(points, edges, root_vertex=0)
         """
-        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
-                                                              points.shape[0])
+        n_vertices = points.shape[0]
+        if edges.shape[0] == 0 or edges is None:
+            adjacency_matrix = np.zeros((n_vertices, n_vertices))
+        else:
+            adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
+                                                                  n_vertices)
         return cls(points, adjacency_matrix, root_vertex=root_vertex,
                    copy=copy, skip_checks=skip_checks)
 
