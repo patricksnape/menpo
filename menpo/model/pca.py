@@ -1180,6 +1180,16 @@ class PCAModel(MeanLinearModel):
                    x_axis_limits=(0, self.n_active_components - 1),
                    y_axis_limits=None, figure_size=figure_size, style=style)
 
+    @property
+    def _str_title(self):
+        r"""
+        Returns a string containing the name of the model.
+
+        :type: `str`
+        """
+        return "PCA model with {} active components.".format(
+            self.n_active_components)
+
     def __str__(self):
         str_out = 'PCA Model \n'                             \
                   ' - centred:              {}\n'            \

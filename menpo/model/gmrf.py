@@ -3,6 +3,7 @@ from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import inv as scipy_inv
 
 from menpo.math import as_matrix
+from menpo.shape import UndirectedGraph
 from menpo.visualize import print_progress, bytes_str
 
 
@@ -609,6 +610,18 @@ class GMRFModel(object):
 
             # insert to precision matrix
             self.precision[i_from:i_to, i_from:i_to] = inv_cov
+
+    @property
+    def _str_title(self):
+        r"""
+        Returns a string containing the name of the model.
+
+        :type: `str`
+        """
+        tmp = 'a'
+        if isinstance(self.graph, UndirectedGraph):
+            tmp = 'an'
+        return "GMRF model on {} {}".format(tmp, self.graph)
 
     def __str__(self):
         incremental_str = (' - Can be incrementally updated.' if
