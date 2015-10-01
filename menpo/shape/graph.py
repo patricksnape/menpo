@@ -2648,7 +2648,7 @@ def _convert_edges_to_adjacency_matrix(edges, n_vertices):
     """
     if isinstance(edges, list):
         edges = np.array(edges)
-    if edges.shape[0] == 0 or edges is None:
+    if edges is None or edges.shape[0] == 0:
         # create adjacency with zeros
         return csr_matrix((n_vertices, n_vertices), dtype=np.int)
     else:
@@ -2679,7 +2679,7 @@ def _convert_edges_to_symmetric_adjacency_matrix(edges, n_vertices):
     """
     if isinstance(edges, list):
         edges = np.array(edges)
-    if edges.shape[0] == 0 or edges is None:
+    if edges is None or edges.shape[0] == 0:
         # create adjacency with zeros
         adjacency_matrix = csr_matrix((n_vertices, n_vertices), dtype=np.int)
     else:
