@@ -249,11 +249,7 @@ class Graph(object):
             graph = UndirectedGraph.init_from_edges(edges, n_vertices=6)
 
         """
-        if edges.shape[0] == 0 or edges is None:
-            adjacency_matrix = np.zeros((n_vertices, n_vertices))
-        else:
-            adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
-                                                                  n_vertices)
+        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges, n_vertices)
         return cls(adjacency_matrix, copy=False, skip_checks=skip_checks)
 
     @property
@@ -793,11 +789,8 @@ class UndirectedGraph(Graph):
             graph = UndirectedGraph.init_from_edges(edges, n_vertices=6)
 
         """
-        if edges.shape[0] == 0 or edges is None:
-            adjacency_matrix = np.zeros((n_vertices, n_vertices))
-        else:
-            adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
-                edges, n_vertices)
+        adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
+            edges, n_vertices)
         return cls(adjacency_matrix, copy=False, skip_checks=skip_checks)
 
     @property
@@ -1200,6 +1193,58 @@ class Tree(DirectedGraph):
         # store root and predecessors list
         self.root_vertex = root_vertex
         self.predecessors_list = self._get_predecessors_list()
+
+    @classmethod
+    def init_from_edges(cls, edges, n_vertices, root_vertex, copy=True,
+                        skip_checks=False):
+        r"""
+        Construct a :map:`Tree` from edges array.
+
+        Parameters
+        ----------
+        edges : ``(n_edges, 2, )`` `ndarray`
+            The `ndarray` of edges, i.e. all the pairs of vertices that are
+            connected with an edge.
+        n_vertices : `int`
+            The total number of vertices, assuming that the numbering of
+            vertices starts from ``0``. ``edges`` and ``n_vertices`` can be
+            defined in a way to set isolated vertices.
+        root_vertex : `int`
+            That vertex that will be set as root.
+        copy : `bool`, optional
+            If ``False``, the ``adjacency_matrix`` will not be copied on
+            assignment.
+        skip_checks : `bool`, optional
+            If ``True``, no checks will be performed.
+
+        Examples
+        --------
+        The following tree ::
+
+                   0
+                   |
+                ___|___
+               1       2
+               |       |
+              _|_      |
+             3   4     5
+             |   |     |
+             |   |     |
+             6   7     8
+
+        can be defined as ::
+
+            from menpo.shape import PointTree
+            import numpy as np
+            points = np.array([[30, 30], [10, 20], [50, 20], [0, 10], [20, 10],
+                               [50, 10], [0, 0], [20, 0], [50, 0]])
+            edges = np.array([[0, 1], [0, 2], [1, 3], [1, 4], [2, 5], [3, 6],
+                              [4, 7], [5, 8]])
+            tree = PointTree.init_from_edges(points, edges, root_vertex=0)
+        """
+        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges, n_vertices)
+        return cls(adjacency_matrix, root_vertex=root_vertex, copy=copy,
+                   skip_checks=skip_checks)
 
     def _get_predecessors_list(self):
         r"""
@@ -1614,12 +1659,8 @@ class PointGraph(Graph, PointCloud):
             graph = PointUndirectedGraph.init_from_edges(points, edges)
 
         """
-        n_vertices = points.shape[0]
-        if edges.shape[0] == 0 or edges is None:
-            adjacency_matrix = np.zeros((n_vertices, n_vertices))
-        else:
-            adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
-                                                                  n_vertices)
+        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
+                                                              points.shape[0])
         return cls(points, adjacency_matrix, copy=copy, skip_checks=skip_checks)
 
     def tojson(self):
@@ -1983,12 +2024,8 @@ class PointUndirectedGraph(PointGraph, UndirectedGraph):
             graph = PointUndirectedGraph.init_from_edges(points, edges)
 
         """
-        n_vertices = points.shape[0]
-        if edges.shape[0] == 0 or edges is None:
-            adjacency_matrix = np.zeros((n_vertices, n_vertices))
-        else:
-            adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
-                edges, n_vertices)
+        adjacency_matrix = _convert_edges_to_symmetric_adjacency_matrix(
+            edges, points.shape[0])
         return cls(points, adjacency_matrix, copy=copy, skip_checks=skip_checks)
 
     def from_mask(self, mask):
@@ -2405,12 +2442,8 @@ class PointTree(PointDirectedGraph, Tree):
                               [4, 7], [5, 8]])
             tree = PointTree.init_from_edges(points, edges, root_vertex=0)
         """
-        n_vertices = points.shape[0]
-        if edges.shape[0] == 0 or edges is None:
-            adjacency_matrix = np.zeros((n_vertices, n_vertices))
-        else:
-            adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
-                                                                  n_vertices)
+        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
+                                                              points.shape[0])
         return cls(points, adjacency_matrix, root_vertex=root_vertex,
                    copy=copy, skip_checks=skip_checks)
 
@@ -2599,7 +2632,7 @@ def _convert_edges_to_adjacency_matrix(edges, n_vertices):
 
     Parameters
     ----------
-    edges : ``(n_edges, 2, )`` `ndarray`
+    edges : ``(n_edges, 2, )`` `ndarray` or ``None``
         The `ndarray` of edges, i.e. all the pairs of vertices that are
         connected with an edge.
     n_vertices : `int`
@@ -2615,9 +2648,9 @@ def _convert_edges_to_adjacency_matrix(edges, n_vertices):
     """
     if isinstance(edges, list):
         edges = np.array(edges)
-    if edges.shape[0] == 0:
-        # create adjacency with a single vertex and no edges
-        return np.array([[0]])
+    if edges.shape[0] == 0 or edges is None:
+        # create adjacency with zeros
+        return csr_matrix((n_vertices, n_vertices), dtype=np.int)
     else:
         # create sparse adjacency
         return csr_matrix(([1] * edges.shape[0], (edges[:, 0], edges[:, 1])),
@@ -2630,7 +2663,7 @@ def _convert_edges_to_symmetric_adjacency_matrix(edges, n_vertices):
 
     Parameters
     ----------
-    edges : ``(n_edges, 2, )`` `ndarray`
+    edges : ``(n_edges, 2, )`` `ndarray` or ``None``
         The `ndarray` of edges, i.e. all the pairs of vertices that are
         connected with an edge.
     n_vertices : `int`
@@ -2646,9 +2679,13 @@ def _convert_edges_to_symmetric_adjacency_matrix(edges, n_vertices):
     """
     if isinstance(edges, list):
         edges = np.array(edges)
-    rows = np.hstack((edges[:, 0], edges[:, 1]))
-    cols = np.hstack((edges[:, 1], edges[:, 0]))
-    adjacency_matrix = csr_matrix(([1] * rows.shape[0], (rows, cols)),
-                                  shape=(n_vertices, n_vertices))
-    adjacency_matrix[adjacency_matrix.nonzero()] = 1
+    if edges.shape[0] == 0 or edges is None:
+        # create adjacency with zeros
+        adjacency_matrix = csr_matrix((n_vertices, n_vertices), dtype=np.int)
+    else:
+        rows = np.hstack((edges[:, 0], edges[:, 1]))
+        cols = np.hstack((edges[:, 1], edges[:, 0]))
+        adjacency_matrix = csr_matrix(([1] * rows.shape[0], (rows, cols)),
+                                      shape=(n_vertices, n_vertices))
+        adjacency_matrix[adjacency_matrix.nonzero()] = 1
     return adjacency_matrix
