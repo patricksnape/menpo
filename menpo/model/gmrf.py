@@ -4,7 +4,7 @@ from scipy.sparse.linalg import inv as scipy_inv
 
 from menpo.math import as_matrix
 from menpo.shape import UndirectedGraph
-from menpo.visualize import print_progress, bytes_str
+from menpo.visualize import print_progress, bytes_str, print_dynamic
 
 
 def _covariance_matrix_inverse(cov_mat, n_components):
@@ -522,7 +522,7 @@ class GMRFModel(object):
 
         # print info
         if verbose and not self.sparse:
-            print('Allocated precision matrix of size {}'.format(
+            print_dynamic('Allocated precision matrix of size {}'.format(
                 bytes_str(precision.nbytes)))
         return precision
 
@@ -532,7 +532,7 @@ class GMRFModel(object):
         if verbose:
             edges = print_progress(
                 range(self.graph.n_edges), n_items=self.graph.n_edges,
-                prefix='Building precision matrix')
+                prefix='Building precision matrix', end_with_newline=False)
         else:
             edges = range(self.graph.n_edges)
 
@@ -590,7 +590,7 @@ class GMRFModel(object):
         if verbose:
             vertices = print_progress(
                 range(self.graph.n_vertices), n_items=self.graph.n_vertices,
-                prefix='Building precision matrix')
+                prefix='Building precision matrix', end_with_newline=False)
         else:
             vertices = range(self.graph.n_vertices)
 
