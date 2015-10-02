@@ -326,7 +326,7 @@ def test_pca_instance_init_from_covariance():
         assert(pca1.n_samples == pca2.n_samples)
         assert(pca1.noise_variance() == pca2.noise_variance())
         assert(pca1.noise_variance_ratio() == pca2.noise_variance_ratio())
-        assert(pca1.variance() == pca2.variance())
-        assert(pca1.variance_ratio() == pca2.variance_ratio())
+        assert_almost_equal(pca1.variance(), pca2.variance())
+        assert_almost_equal(pca1.variance_ratio(), pca2.variance_ratio())
         assert_array_almost_equal(pca1.whitened_components(),
                                   pca2.whitened_components())
