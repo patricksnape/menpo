@@ -293,7 +293,7 @@ class GMRFModel(object):
 
         # n_features and n_features_per_vertex
         self.n_features = data.shape[1]
-        self.n_features_per_vertex = self.n_features / graph.n_vertices
+        self.n_features_per_vertex = int(self.n_features / graph.n_vertices)
 
         # Assign arguments
         self.graph = graph
@@ -561,19 +561,19 @@ class GMRFModel(object):
                 # v1, v2
                 self.precision[v1_from:v1_to, v2_from:v2_to] = \
                     inv_cov[:self.n_features_per_vertex,
-                    self.n_features_per_vertex::]
+                            self.n_features_per_vertex::]
                 # v2, v1
                 self.precision[v2_from:v2_to, v1_from:v1_to] = \
                     inv_cov[self.n_features_per_vertex::,
-                    :self.n_features_per_vertex]
+                            :self.n_features_per_vertex]
                 # v1, v1
                 self.precision[v1_from:v1_to, v1_from:v1_to] += \
                     inv_cov[:self.n_features_per_vertex,
-                    :self.n_features_per_vertex]
+                            :self.n_features_per_vertex]
                 # v2, v2
                 self.precision[v2_from:v2_to, v2_from:v2_to] += \
                     inv_cov[self.n_features_per_vertex::,
-                    self.n_features_per_vertex::]
+                            self.n_features_per_vertex::]
             elif self.mode == 'subtraction':
                 # v1, v2
                 self.precision[v1_from:v1_to, v2_from:v2_to] = -inv_cov
