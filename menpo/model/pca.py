@@ -57,9 +57,9 @@ class PCAModel(MeanLinearModel):
 
         Parameters
         ----------
-        C : ``(N, N)`` `ndarray`
-            The Covariance/Scatter matrix, where `N` is the number of features.
-        mean : ``(N, )`` `ndarray`
+        C : ``(n_features, n_features)`` `ndarray`
+            The Covariance/Scatter matrix.
+        mean : ``(n_features, )`` `ndarray`
             The mean vector.
         n_samples : `int`
             The number of samples used to generate the covariance matrix.
@@ -80,6 +80,40 @@ class PCAModel(MeanLinearModel):
         # The call to __init__ of MeanLinearModel is done in here
         model._constructor_helper(
             eigenvalues=e_values, eigenvectors=e_vectors, mean=mean,
+            centred=centred, max_n_components=max_n_components)
+        return model
+
+    @classmethod
+    def init_from_components(cls, components, eigenvalues, mean, n_samples,
+                             centred, max_n_components=None):
+        r"""
+        Build the Principal Component Analysis (PCA) using the provided
+        components (eigenvectors) and eigenvalues.
+
+        Parameters
+        ----------
+        components : ``(n_components, n_features)`` `ndarray`
+            The eigenvectors to be used.
+        eigenvalues : ``(n_components, )`` `ndarray`
+            The corresponding eigenvalues.
+        mean : ``(n_features, )`` `ndarray`
+            The mean vector.
+        n_samples : `int`
+            The number of samples used to generate the eigenvectors.
+        centred : `bool`, optional
+            When ``True`` we assume that the data were centered before
+            computing the eigenvectors.
+        max_n_components : `int`, optional
+            The maximum number of components to keep in the model. Any
+            components above and beyond this one are discarded.
+        """
+        # Create new pca instance
+        model = PCAModel.__new__(cls)
+        model.n_samples = n_samples
+
+        # The call to __init__ of MeanLinearModel is done in here
+        model._constructor_helper(
+            eigenvalues=eigenvalues, eigenvectors=components, mean=mean,
             centred=centred, max_n_components=max_n_components)
         return model
 
@@ -1257,7 +1291,7 @@ class PCAInstanceModel(PCAModel, InstanceBackedModel):
 
         Parameters
         ----------
-        C : ``(N, N)`` `ndarray`
+        C : ``(n_features, n_features)`` `ndarray`
             The Covariance/Scatter matrix, where `N` is the number of features.
         mean : :map:`Vectorizable`
             The mean vector.
@@ -1283,6 +1317,41 @@ class PCAInstanceModel(PCAModel, InstanceBackedModel):
                                   centred=centred,
                                   max_n_components=max_n_components)
         InstanceBackedModel.__init__(model, mean)
+        return model
+
+    @classmethod
+    def init_from_components(cls, components, eigenvalues, mean, n_samples,
+                             centred, max_n_components=None):
+        r"""
+        Build the Principal Component Analysis (PCA) using the provided
+        components (eigenvectors) and eigenvalues.
+
+        Parameters
+        ----------
+        components : ``(n_components, n_features)`` `ndarray`
+            The eigenvectors to be used.
+        eigenvalues : ``(n_components, )`` `ndarray`
+            The corresponding eigenvalues.
+        mean : :map:`Vectorizable`
+            The mean vector.
+        n_samples : `int`
+            The number of samples used to generate the eigenvectors.
+        centred : `bool`, optional
+            When ``True`` we assume that the data were centered before
+            computing the eigenvectors.
+        max_n_components : `int`, optional
+            The maximum number of components to keep in the model. Any
+            components above and beyond this one are discarded.
+        """
+        # Create new pca instance
+        model = PCAModel.__new__(cls)
+        model.n_samples = n_samples
+
+        # The call to __init__ of MeanLinearModel is done in here
+        model._constructor_helper(
+            eigenvalues=eigenvalues, eigenvectors=components,
+            mean=mean.as_vector(), centred=centred,
+            max_n_components=max_n_components)
         return model
 
     def mean(self):
