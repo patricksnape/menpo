@@ -1,5 +1,6 @@
 from __future__ import division
 import numpy as np
+from scipy.sparse import issparse
 from .linalg import dot_inplace_right
 
 
@@ -9,8 +10,10 @@ def eigenvalue_decomposition(C, eps=1e-10):
 
     Parameters
     ----------
-    C : ``(N, N)`` `ndarray`
-        Covariance/Scatter matrix
+    C : ``(N, N)`` `ndarray` or `scipy.sparse`
+        The Covariance/Scatter matrix. If it is a `numpy.array`, then
+        `numpy.linalg.eigh` is used. If it is an instance of `scipy.sparse`,
+        then `scipy.sparse.linalg.eigsh` is used.
     eps : `float`, optional
         Tolerance value for positive eigenvalue. Those eigenvalues smaller
         than the specified eps value, together with their corresponding
@@ -27,7 +30,11 @@ def eigenvalue_decomposition(C, eps=1e-10):
         The array of positive eigenvalues.
     """
     # compute eigenvalue decomposition
-    eigenvalues, eigenvectors = np.linalg.eigh(C)
+    if issparse(C):
+        from scipy.sparse.linalg import eigsh
+        eigenvalues, eigenvectors = eigsh(C)
+    else:
+        eigenvalues, eigenvectors = np.linalg.eigh(C)
     # sort eigenvalues from largest to smallest
     index = np.argsort(eigenvalues)[::-1]
     eigenvalues = eigenvalues[index]
@@ -132,6 +139,49 @@ def pca(X, centre=True, inplace=False, eps=1e-10):
         U *= w[:, None]
 
     return U, l, m
+
+
+def pcacov(C, eps=1e-10):
+    r"""
+    Apply Principal Component Analysis (PCA) given a covariance/scatter matrix
+    `C`. In the case where the data matrix is very large, it is advisable to set
+    ``inplace = True``. However, note this destructively edits the data matrix
+    by subtracting the mean inplace.
+
+    Parameters
+    ----------
+    C : ``(N, N)`` `ndarray` or `scipy.sparse`
+        Covariance/Scatter matrix
+    eps : `float`, optional
+        Tolerance value for positive eigenvalue. Those eigenvalues smaller
+        than the specified eps value, together with their corresponding
+        eigenvectors, will be automatically discarded.
+
+    Returns
+    -------
+    U (eigenvectors) : ``(n_components, n_dims)`` `ndarray`
+        Eigenvectors of the data matrix.
+    l (eigenvalues) : ``(n_components,)`` `ndarray`
+        Positive eigenvalues of the data matrix.
+    """
+    if C.shape[0] != C.shape[1]:
+        raise ValueError('C must be square.')
+
+    # C should be perfectly symmetrical, but numerical error can creep in.
+    # Enforce symmetry here to avoid creating complex eigenvectors
+    C = (C + C.T) / 2.0
+
+    # C (covariance): d x d
+    # perform eigenvalue decomposition
+    # U (eigenvectors): d x n
+    # s (eigenvalues):  n
+    U, l = eigenvalue_decomposition(C, eps=eps)
+
+    # transpose U
+    # U: n x d
+    U = U.T
+
+    return U, l
 
 
 def ipca(B, U_a, l_a, n_a, m_a=None, f=1.0, eps=1e-10):
