@@ -399,8 +399,8 @@ class PCAModel(MeanLinearModel):
         noise_variance : `float`
             The mean variance of the inactive components.
         """
+        noise_variance = 0.0
         if self.n_active_components == self.n_components:
-            noise_variance = 0.0
             if self._trimmed_eigenvalues.size is not 0:
                 noise_variance += self._trimmed_eigenvalues.mean()
         else:
