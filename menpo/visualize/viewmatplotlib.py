@@ -768,6 +768,8 @@ class MatplotlibGraphPlotter(MatplotlibRenderer):
             plt.xlim(self.x_axis_limits)
         if self.y_axis_limits is not None:
             plt.ylim(self.y_axis_limits)
+            if self.y_axis_limits[0] == 0 and self.y_axis_limits[1] == 1.:
+                plt.yticks(np.linspace(0, 1., num=11))
 
         # Set figure size
         if figure_size is not None:
