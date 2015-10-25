@@ -4,6 +4,53 @@ from scipy.sparse import issparse
 from .linalg import dot_inplace_right
 
 
+# TODO: document me!
+def cca(X, Y, inplace=False, verbose=False):
+
+    # compute means
+    if verbose:
+        print('Computing means')
+    mx = np.mean(X, axis=0)
+    my = np.mean(Y, axis=0)
+
+    # mean center views
+    if verbose:
+        print('Centering views')
+    if inplace:
+        X -= mx
+        Y -= my
+    else:
+        X = X - mx
+        Y = Y - my
+
+    # compute SVD of X
+    if verbose:
+        print('Computing SVD of X')
+    Ux, Sx, Vx = np.linalg.svd(X, full_matrices=False)
+
+    # compute SVD of Y
+    if verbose:
+        print('Computing SVD of Y')
+    Uy, Sy, Vy = np.linalg.svd(Y, full_matrices=False)
+
+    # compute cross-correlation in U-bases
+    if verbose:
+        print('Computing cross-correlation Cxy')
+    Cxy = Ux.T.dot(Uy)
+
+    # compute SVD of Cxy
+    if verbose:
+        print('Computing SVD of Cxy')
+    Fx, C, Fy = np.linalg.svd(Cxy, full_matrices=False)
+
+    if verbose:
+        print('Computing CCA bases, Wx and Wy')
+    Wx = Vx.T.dot(1/Sx[..., None] * Fx)
+    Wy = Vy.T.dot(1/Sy[..., None] * Fy.T)
+
+    return Wx, Wy, mx, my, C
+
+
 def eigenvalue_decomposition(C, eps=1e-10):
     r"""
     Eigenvalue decomposition of a given covariance (or scatter) matrix.
