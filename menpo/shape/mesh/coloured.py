@@ -41,9 +41,91 @@ class ColouredTriMesh(TriMesh):
         else:
             colours_handle = colours.copy()
 
-        if points.shape[0] != colours.shape[0]:
+        if points.shape[0] != colours_handle.shape[0]:
             raise ValueError('Must provide a colour per-vertex.')
         self.colours = colours_handle
+
+    @classmethod
+    def init_2d_grid(cls, shape, spacing=None, colours=None):
+        r"""
+        Create a ColouredTriMesh that exists on a regular 2D grid. The first
+        dimension is the number of rows in the grid and the second dimension
+        of the shape is the number of columns. ``spacing`` optionally allows
+        the definition of the distance between points (uniform over points).
+        The spacing may be different for rows and columns.
+
+        The triangulation will be right-handed and the diagonal will go from
+        the top left to the bottom right of a square on the grid.
+
+        Parameters
+        ----------
+        shape : `tuple` of 2 `int`
+            The size of the grid to create, this defines the number of points
+            across each dimension in the grid. The first element is the number
+            of rows and the second is the number of columns.
+        spacing : `int` or `tuple` of 2 `int`, optional
+            The spacing between points. If a single `int` is provided, this
+            is applied uniformly across each dimension. If a `tuple` is
+            provided, the spacing is applied non-uniformly as defined e.g.
+            ``(2, 3)`` gives a spacing of 2 for the rows and 3 for the
+            columns.
+        colours : ``(N, 3)`` `ndarray`, optional
+            The floating point RGB colour per vertex. If not given, grey will be
+            assigned to each vertex.
+
+        Returns
+        -------
+        trimesh : :map:`TriMesh`
+            A TriMesh arranged in a grid.
+        """
+        pc = TriMesh.init_2d_grid(shape, spacing=spacing)
+        points = pc.points
+        trilist = pc.trilist
+        # Ensure that the colours are copied
+        if colours is not None:
+            colours = colours.copy()
+        return ColouredTriMesh(points, trilist=trilist, colours=colours,
+                               copy=False)
+
+    @classmethod
+    def init_from_depth_image(cls, depth_image, colours=None):
+        r"""
+        Return a 3D textured triangular mesh from the given depth image. The
+        depth image is assumed to represent height/depth values and the XY
+        coordinates are assumed to unit spaced and represent image coordinates.
+        This is particularly useful for visualising depth values that have been
+        recovered from images.
+
+        The optionally passed texture will be textured mapped onto the planar
+        surface using the correct texture coordinates for an image of the
+        same shape as ``depth_image``.
+
+        Parameters
+        ----------
+        depth_image : :map:`Image` or subclass
+            A single channel image that contains depth values - as commonly
+            returned by RGBD cameras, for example.
+        colours : ``(N, 3)`` `ndarray`, optional
+            The floating point RGB colour per vertex. If not given, grey will be
+            assigned to each vertex.
+
+        Returns
+        -------
+        depth_cloud : ``type(cls)``
+            A new 3D TriMesh with unit XY coordinates and the given depth
+            values as Z coordinates. The trilist is constructed as in
+            :meth:`init_2d_grid`.
+        """
+        from menpo.image import MaskedImage
+
+        new_tmesh = cls.init_2d_grid(depth_image.shape, colours=colours)
+        if isinstance(depth_image, MaskedImage):
+            new_tmesh = new_tmesh.from_mask(depth_image.mask.as_vector())
+        return cls(np.hstack([new_tmesh.points,
+                              depth_image.as_vector(keep_channels=True).T]),
+                   colours=new_tmesh.colours,
+                   trilist=new_tmesh.trilist,
+                   copy=False)
 
     def from_mask(self, mask):
         """
@@ -106,8 +188,8 @@ class ColouredTriMesh(TriMesh):
                     figure_id, new_figure, self.points,
                     self.trilist, self.colours).render(**kwargs)
             except ImportError:
-                from menpo.visualize import Menpo3dErrorMessage
-                raise ImportError(Menpo3dErrorMessage)
+                from menpo.visualize import Menpo3dMissingError
+                raise Menpo3dMissingError()
         else:
             return super(ColouredTriMesh, self).view(figure_id=figure_id,
                                                      new_figure=new_figure,
@@ -116,12 +198,17 @@ class ColouredTriMesh(TriMesh):
     def _view_2d(self, figure_id=None, new_figure=False, image_view=True,
                  render_lines=True, line_colour='r', line_style='-',
                  line_width=1., render_markers=True, marker_style='o',
-                 marker_size=20, marker_face_colour='k', marker_edge_colour='k',
-                 marker_edge_width=1., render_axes=True,
+                 marker_size=5, marker_face_colour='k', marker_edge_colour='k',
+                 marker_edge_width=1., render_numbering=False,
+                 numbers_horizontal_align='center',
+                 numbers_vertical_align='bottom',
+                 numbers_font_name='sans-serif', numbers_font_size=10,
+                 numbers_font_style='normal', numbers_font_weight='normal',
+                 numbers_font_colour='k', render_axes=True,
                  axes_font_name='sans-serif', axes_font_size=10,
                  axes_font_style='normal', axes_font_weight='normal',
-                 axes_x_limits=None, axes_y_limits=None, figure_size=(10, 8),
-                 label=None):
+                 axes_x_limits=None, axes_y_limits=None, axes_x_ticks=None,
+                 axes_y_ticks=None, figure_size=(10, 8), label=None):
         r"""
         Visualization of the TriMesh in 2D. Currently, explicit coloured TriMesh
         viewing is not supported, and therefore viewing falls back to uncoloured
@@ -158,7 +245,7 @@ class ColouredTriMesh(TriMesh):
                 {., ,, o, v, ^, <, >, +, x, D, d, s, p, *, h, H, 1, 2, 3, 4, 8}
 
         marker_size : `int`, optional
-            The size of the markers in points^2.
+            The size of the markers in points.
         marker_face_colour : See Below, optional
             The face (filling) colour of the markers.
             Example options ::
@@ -177,6 +264,36 @@ class ColouredTriMesh(TriMesh):
 
         marker_edge_width : `float`, optional
             The width of the markers' edge.
+        render_numbering : `bool`, optional
+            If ``True``, the landmarks will be numbered.
+        numbers_horizontal_align : ``{center, right, left}``, optional
+            The horizontal alignment of the numbers' texts.
+        numbers_vertical_align : ``{center, top, bottom, baseline}``, optional
+            The vertical alignment of the numbers' texts.
+        numbers_font_name : See Below, optional
+            The font of the numbers. Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
+        numbers_font_size : `int`, optional
+            The font size of the numbers.
+        numbers_font_style : ``{normal, italic, oblique}``, optional
+            The font style of the numbers.
+        numbers_font_weight : See Below, optional
+            The font weight of the numbers.
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold, demibold, demi, bold, heavy, extra bold, black}
+
+        numbers_font_colour : See Below, optional
+            The font colour of the numbers.
+            Example options ::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
         render_axes : `bool`, optional
             If ``True``, the axes will be rendered.
         axes_font_name : See Below, optional
@@ -196,10 +313,20 @@ class ColouredTriMesh(TriMesh):
                 {ultralight, light, normal, regular, book, medium, roman,
                 semibold, demibold, demi, bold, heavy, extra bold, black}
 
-        axes_x_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the x axis.
+        axes_x_limits : `float` or (`float`, `float`) or ``None``, optional
+            The limits of the x axis. If `float`, then it sets padding on the
+            right and left of the TriMesh as a percentage of the TriMesh's
+            width. If `tuple` or `list`, then it defines the axis limits. If
+            ``None``, then the limits are set automatically.
         axes_y_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the y axis.
+            The limits of the y axis. If `float`, then it sets padding on the
+            top and bottom of the TriMesh as a percentage of the TriMesh's
+            height. If `tuple` or `list`, then it defines the axis limits. If
+            ``None``, then the limits are set automatically.
+        axes_x_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the x axis.
+        axes_y_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the y axis.
         figure_size : (`float`, `float`) `tuple` or ``None``, optional
             The size of the figure in inches.
         label : `str`, optional
@@ -227,8 +354,17 @@ class ColouredTriMesh(TriMesh):
             marker_style=marker_style, marker_size=marker_size,
             marker_face_colour=marker_face_colour,
             marker_edge_colour=marker_edge_colour,
-            marker_edge_width=marker_edge_width, render_axes=render_axes,
+            marker_edge_width=marker_edge_width,
+            render_numbering=render_numbering,
+            numbers_horizontal_align=numbers_horizontal_align,
+            numbers_vertical_align=numbers_vertical_align,
+            numbers_font_name=numbers_font_name,
+            numbers_font_size=numbers_font_size,
+            numbers_font_style=numbers_font_style,
+            numbers_font_weight=numbers_font_weight,
+            numbers_font_colour=numbers_font_colour, render_axes=render_axes,
             axes_font_name=axes_font_name, axes_font_size=axes_font_size,
             axes_font_style=axes_font_style, axes_font_weight=axes_font_weight,
             axes_x_limits=axes_x_limits, axes_y_limits=axes_y_limits,
+            axes_x_ticks=axes_x_ticks, axes_y_ticks=axes_y_ticks,
             figure_size=figure_size, label=label)

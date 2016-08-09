@@ -5,6 +5,11 @@ from nose.tools import raises
 from menpo.testing import is_same_array
 from menpo.image import BooleanImage, MaskedImage, Image
 
+# TODO: Remove when Pillow 3.3.0 release on all platforms
+import unittest
+from PIL import PILLOW_VERSION
+from distutils.version import LooseVersion
+
 
 @raises(ValueError)
 def test_create_1d_error():
@@ -47,19 +52,19 @@ def test_image_blank_n_channels():
 def test_image_centre():
     pixels = np.ones((1, 10, 20))
     image = Image(pixels)
-    assert(np.all(image.centre == np.array([5, 10])))
+    assert(np.all(image.centre() == np.array([5, 10])))
 
 
 def test_image_str_shape_4d():
     pixels = np.ones((1, 10, 20, 11, 12))
     image = Image(pixels)
-    assert(image._str_shape == '10 x 20 x 11 x 12')
+    assert(image._str_shape() == '10 x 20 x 11 x 12')
 
 
 def test_image_str_shape_2d():
     pixels = np.ones((1, 10, 20))
     image = Image(pixels)
-    assert(image._str_shape == '20W x 10H')
+    assert(image._str_shape() == '20W x 10H')
 
 
 def test_image_as_vector():
@@ -103,7 +108,7 @@ def test_image_from_vector_inplace_no_copy():
     pixels = np.random.rand(2, 10, 20)
     pixels2 = np.random.rand(2, 10, 20)
     image = Image(pixels)
-    image.from_vector_inplace(pixels2.ravel(), copy=False)
+    image._from_vector_inplace(pixels2.ravel(), copy=False)
     assert(is_same_array(image.pixels, pixels2))
 
 
@@ -113,7 +118,7 @@ def test_image_from_vector_inplace_no_copy_warning():
         image = Image(pixels)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            image.from_vector_inplace(pixels2.ravel()[::-1], copy=False)
+            image._from_vector_inplace(pixels2.ravel()[::-1], copy=False)
             assert len(w) == 1
 
 
@@ -121,7 +126,7 @@ def test_image_from_vector_inplace_copy_default():
     pixels = np.random.rand(2, 10, 20)
     pixels2 = np.random.rand(2, 10, 20)
     image = Image(pixels)
-    image.from_vector_inplace(pixels2.ravel())
+    image._from_vector_inplace(pixels2.ravel())
     assert(not is_same_array(image.pixels, pixels2))
 
 
@@ -129,7 +134,7 @@ def test_image_from_vector_inplace_copy_explicit():
     pixels = np.random.rand(2, 10, 20)
     pixels2 = np.random.rand(2, 10, 20)
     image = Image(pixels)
-    image.from_vector_inplace(pixels2.ravel(), copy=True)
+    image._from_vector_inplace(pixels2.ravel(), copy=True)
     assert(not is_same_array(image.pixels, pixels2))
 
 
@@ -200,17 +205,9 @@ def test_boolean_image_from_vector_no_copy_raises():
         assert len(w) == 1
 
 
-def test_boolean_image_invert_inplace():
+def test_boolean_image_invert_double_noop():
     image = BooleanImage.init_blank((4, 4))
-    image.invert_inplace()
-    assert(np.all(~image.pixels))
-
-
-def test_boolean_image_invert_inplace_double_noop():
-    image = BooleanImage.init_blank((4, 4))
-    image.invert_inplace()
-    image.invert_inplace()
-    assert(np.all(image.pixels))
+    assert(np.all(image.invert().invert().pixels))
 
 
 def test_boolean_image_invert():
@@ -425,9 +422,11 @@ def test_normalize_std_image():
     pixels[0] = 0.5
     pixels[1] = 0.2345
     image = Image(pixels)
-    image.normalize_std_inplace()
-    assert_allclose(np.mean(image.pixels), 0, atol=1e-10)
-    assert_allclose(np.std(image.pixels), 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_std()
+    assert_allclose(np.mean(new_image.pixels), 0, atol=1e-10)
+    assert_allclose(np.std(new_image.pixels), 1)
 
 
 def test_normalize_norm_image():
@@ -435,9 +434,11 @@ def test_normalize_norm_image():
     pixels[0] = 0.5
     pixels[1] = 0.2345
     image = Image(pixels)
-    image.normalize_norm_inplace()
-    assert_allclose(np.mean(image.pixels), 0, atol=1e-10)
-    assert_allclose(np.linalg.norm(image.pixels), 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_norm()
+    assert_allclose(np.mean(new_image.pixels), 0, atol=1e-10)
+    assert_allclose(np.linalg.norm(new_image.pixels), 1)
 
 
 @raises(ValueError)
@@ -446,14 +447,18 @@ def test_normalize_std_no_variance_exception():
     pixels[0] = 0.5
     pixels[1] = 0.2345
     image = MaskedImage(pixels)
-    image.normalize_std_inplace(mode='per_channel')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        image.normalize_std(mode='per_channel')
 
 
 @raises(ValueError)
 def test_normalize_norm_zero_norm_exception():
     pixels = np.zeros((3, 120, 120))
     image = MaskedImage(pixels)
-    image.normalize_norm_inplace(mode='per_channel')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        image.normalize_norm(mode='per_channel')
 
 
 def test_normalize_std_masked_per_channel():
@@ -462,11 +467,13 @@ def test_normalize_std_masked_per_channel():
     pixels[1] += -14
     pixels[2] /= 130
     image = MaskedImage(pixels)
-    image.normalize_std_inplace(mode='per_channel')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_std(mode='per_channel')
     assert_allclose(
-        np.mean(image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
+        np.mean(new_image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
     assert_allclose(
-        np.std(image.as_vector(keep_channels=True), axis=1), 1)
+        np.std(new_image.as_vector(keep_channels=True), axis=1), 1)
 
 
 def test_normalize_std_image_per_channel():
@@ -475,11 +482,14 @@ def test_normalize_std_image_per_channel():
     pixels[0] += -3
     pixels[2] /= 140
     image = Image(pixels)
-    image.normalize_std_inplace(mode='per_channel')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_std(mode='per_channel')
     assert_allclose(
-        np.mean(image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
+        np.mean(new_image.as_vector(keep_channels=True), axis=1), 0,
+        atol=1e-10)
     assert_allclose(
-        np.std(image.as_vector(keep_channels=True), axis=1), 1)
+        np.std(new_image.as_vector(keep_channels=True), axis=1), 1)
 
 
 def test_normalize_norm_image_per_channel():
@@ -488,11 +498,14 @@ def test_normalize_norm_image_per_channel():
     pixels[0] += -114
     pixels[2] /= 30
     image = Image(pixels)
-    image.normalize_norm_inplace(mode='per_channel')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_norm(mode='per_channel')
     assert_allclose(
-        np.mean(image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
+        np.mean(new_image.as_vector(keep_channels=True), axis=1), 0,
+        atol=1e-10)
     assert_allclose(
-        np.linalg.norm(image.as_vector(keep_channels=True), axis=1), 1)
+        np.linalg.norm(new_image.as_vector(keep_channels=True), axis=1), 1)
 
 
 def test_normalize_norm_masked_per_channel():
@@ -501,11 +514,14 @@ def test_normalize_norm_masked_per_channel():
     pixels[0] += -14
     pixels[2] /= 130
     image = MaskedImage(pixels)
-    image.normalize_norm_inplace(mode='per_channel')
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_norm(mode='per_channel')
     assert_allclose(
-        np.mean(image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
+        np.mean(new_image.as_vector(keep_channels=True), axis=1), 0,
+        atol=1e-10)
     assert_allclose(
-        np.linalg.norm(image.as_vector(keep_channels=True), axis=1), 1)
+        np.linalg.norm(new_image.as_vector(keep_channels=True), axis=1), 1)
 
 
 def test_normalize_std_masked():
@@ -516,11 +532,14 @@ def test_normalize_std_masked():
     mask = np.zeros((120, 120))
     mask[30:50, 20:30] = 1
     image = MaskedImage(pixels, mask=mask)
-    image.normalize_std_inplace(mode='per_channel', limit_to_mask=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_std(mode='per_channel', limit_to_mask=True)
     assert_allclose(
-        np.mean(image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
+        np.mean(new_image.as_vector(keep_channels=True), axis=1), 0,
+        atol=1e-10)
     assert_allclose(
-        np.std(image.as_vector(keep_channels=True), axis=1), 1)
+        np.std(new_image.as_vector(keep_channels=True), axis=1), 1)
 
 
 def test_normalize_norm_masked():
@@ -531,46 +550,49 @@ def test_normalize_norm_masked():
     mask = np.zeros((120, 120))
     mask[30:50, 20:30] = 1
     image = MaskedImage(pixels, mask=mask)
-    image.normalize_norm_inplace(mode='per_channel', limit_to_mask=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        new_image = image.normalize_norm(mode='per_channel', limit_to_mask=True)
     assert_allclose(
-        np.mean(image.as_vector(keep_channels=True), axis=1), 0, atol=1e-10)
+        np.mean(new_image.as_vector(keep_channels=True), axis=1), 0,
+        atol=1e-10)
     assert_allclose(
-        np.linalg.norm(image.as_vector(keep_channels=True), axis=1), 1)
+        np.linalg.norm(new_image.as_vector(keep_channels=True), axis=1), 1)
 
 
 def test_rescale_single_num():
-    image = MaskedImage(np.random.randn(3, 120, 120))
+    image = MaskedImage(np.random.randn(3, 120, 120), copy=False)
     new_image = image.rescale(0.5)
     assert_allclose(new_image.shape, (60, 60))
 
 
 def test_rescale_tuple():
-    image = MaskedImage(np.random.randn(3, 120, 120))
+    image = MaskedImage(np.random.randn(3, 120, 120), copy=False)
     new_image = image.rescale([0.5, 2.0])
     assert_allclose(new_image.shape, (60, 240))
 
 
 @raises(ValueError)
 def test_rescale_negative():
-    image = MaskedImage(np.random.randn(3, 120, 120))
+    image = MaskedImage(np.random.randn(3, 120, 120), copy=False)
     image.rescale([0.5, -0.5])
 
 
 @raises(ValueError)
 def test_rescale_negative_single_num():
-    image = MaskedImage(np.random.randn(3, 120, 120))
+    image = MaskedImage(np.random.randn(3, 120, 120), copy=False)
     image.rescale(-0.5)
 
 
 def test_rescale_boundaries_interpolation():
-    image = MaskedImage(np.random.randn(3, 60, 60))
+    image = MaskedImage(np.random.randn(3, 60, 60), copy=False)
     for i in [x * 0.1 for x in range(1, 31)]:
         image_rescaled = image.rescale(i)
         assert_allclose(image_rescaled.mask.proportion_true(), 1.0)
 
 
 def test_resize():
-    image = MaskedImage(np.random.randn(3, 120, 120))
+    image = MaskedImage(np.random.randn(3, 120, 120), copy=False)
     new_size = (250, 250)
     new_image = image.resize(new_size)
     assert_allclose(new_image.shape, new_size)
@@ -578,23 +600,36 @@ def test_resize():
 
 def test_as_greyscale_luminosity():
     ones = np.ones([3, 120, 120])
-    image = MaskedImage(ones)
-    image.pixels[0] *= 0.5
+    image = Image(ones, copy=True)
+    image.pixels[0].fill(0.5)
     new_image = image.as_greyscale(mode='luminosity')
     assert (new_image.shape == image.shape)
     assert (new_image.n_channels == 1)
     assert_allclose(new_image.pixels[0], ones[0] * 0.850532)
 
+
+def test_as_greyscale_luminosity_dtype_uint8():
+    image = Image.init_blank((120, 120), n_channels=3, fill=255, dtype=np.uint8)
+    image.pixels[0].fill(127)
+    new_image = image.as_greyscale(mode='luminosity')
+    assert (new_image.shape == image.shape)
+    assert (new_image.n_channels == 1)
+    assert (new_image.pixels.dtype == np.uint8)
+    expected = np.empty_like(image.pixels[0])
+    expected.fill(216)
+    assert_allclose(new_image.pixels[0], expected)
+
+
 def test_rolled_channels():
-    ones = np.ones([3, 120, 120])
-    image = MaskedImage(ones)
-    rolled_channels = image.rolled_channels()
+    image = Image.init_blank((120, 120), n_channels=3)
+    rolled_channels = image.pixels_with_channels_at_back()
     assert rolled_channels.shape == (120, 120, 3)
+
 
 def test_as_greyscale_average():
     ones = np.ones([3, 120, 120])
-    image = MaskedImage(ones)
-    image.pixels[0] *= 0.5
+    image = Image(ones, copy=True)
+    image.pixels[0].fill(0.5)
     new_image = image.as_greyscale(mode='average')
     assert (new_image.shape == image.shape)
     assert (new_image.n_channels == 1)
@@ -603,14 +638,14 @@ def test_as_greyscale_average():
 
 @raises(ValueError)
 def test_as_greyscale_channels_no_index():
-    image = MaskedImage(np.ones([3, 120, 120]))
+    image = Image.init_blank((120, 120), n_channels=3)
     new_image = image.as_greyscale(mode='channel')
     assert (new_image.shape == image.shape)
     assert (new_image.n_channels == 1)
 
 
 def test_as_greyscale_channels():
-    image = MaskedImage(np.random.randn(3, 120, 120))
+    image = Image(np.random.randn(3, 120, 120), copy=False)
     new_image = image.as_greyscale(mode='channel', channel=0)
     assert (new_image.shape == image.shape)
     assert (new_image.n_channels == 1)
@@ -618,61 +653,105 @@ def test_as_greyscale_channels():
 
 
 def test_as_pil_image_1channel():
-    im = MaskedImage(np.ones((1, 120, 120)))
+    im = Image.init_blank((120, 120), n_channels=1)
     new_im = im.as_PILImage()
     assert_allclose(np.asarray(new_im.getdata()).reshape(im.pixels.shape),
                     (im.pixels * 255).astype(np.uint8))
+
+
+def test_as_rolled_channels_1channel():
+    im = Image.init_blank((120, 120), n_channels=1, fill=1.0)
+    new_im = im.pixels_with_channels_at_back()
+    assert new_im.dtype == np.float
+    assert_allclose(np.ones([120, 120]), new_im)
+    assert new_im.ndim == 2
+
+
+@raises(ValueError)
+def test_as_rolled_channels_float_out_range():
+    im = Image.init_blank((120, 120), n_channels=1, fill=2.0)
+    im.pixels_with_channels_at_back(out_dtype=np.uint8)
+
+
+def test_as_rolled_channels_3channels():
+    im = Image.init_blank((120, 120), n_channels=3, fill=1)
+    new_im = im.pixels_with_channels_at_back()
+    assert new_im.dtype == np.float
+    assert_allclose(np.ones([120, 120, 3]), new_im)
+
+
+def test_as_rolled_channels_1channel_uint16_out():
+    im = Image.init_blank((120, 120), n_channels=1, fill=1)
+    new_im = im.pixels_with_channels_at_back(out_dtype=np.uint16)
+    assert new_im.dtype == np.uint16
+    assert_allclose(np.ones([120, 120]) * 65535, new_im)
+
+
+def test_as_rolled_channels_1channel_float32_out():
+    im = Image.init_blank((120, 120), n_channels=1, fill=1)
+    new_im = im.pixels_with_channels_at_back(out_dtype=np.float32)
+    assert new_im.dtype == np.float32
+    assert_allclose(np.ones([120, 120]), new_im)
 
 
 @raises(ValueError)
 def test_as_pil_image_bad_range():
-    im = MaskedImage(np.random.randn(1, 120, 120))
+    im = MaskedImage(np.random.randn(1, 120, 120), copy=False)
     im.as_PILImage()
 
 
 def test_as_pil_image_float32():
-    im = MaskedImage(np.ones((1, 120, 120)).astype(np.float32))
+    im = Image(np.ones((1, 120, 120), dtype=np.float32), copy=False)
     new_im = im.as_PILImage()
     assert_allclose(np.asarray(new_im.getdata()).reshape(im.pixels.shape),
                     (im.pixels * 255).astype(np.uint8))
 
 
+@unittest.skipIf(LooseVersion(PILLOW_VERSION) < LooseVersion('3.3.0'), "requires pillow>=3.3.0")
+def test_as_pil_image_float32_uint16_out():
+    im = Image(np.ones((1, 120, 120), dtype=np.float32), copy=False)
+    new_im = im.as_PILImage(out_dtype=np.uint16)
+    assert_allclose(np.asarray(new_im.getdata()).reshape(im.pixels.shape),
+                    (im.pixels * 65535).astype(np.uint16))
+
+
 def test_as_pil_image_bool():
-    im = BooleanImage(np.ones((120, 120), dtype=np.bool))
+    im = BooleanImage(np.ones((120, 120), dtype=np.bool), copy=False)
     new_im = im.as_PILImage()
+    assert 1
     assert_allclose(np.asarray(new_im.getdata()).reshape(im.pixels.shape),
                     im.pixels.astype(np.uint8) * 255)
 
 
 def test_as_pil_image_uint8():
-    im = Image(np.ones((120, 120), dtype=np.uint8))
+    im = Image(np.ones((1, 120, 120), dtype=np.uint8), copy=False)
     new_im = im.as_PILImage()
     assert_allclose(np.asarray(new_im.getdata()).reshape(im.pixels.shape),
                     im.pixels)
 
 
 def test_as_pil_image_3channels():
-    im = MaskedImage(np.ones((3, 120, 120)))
+    im = Image.init_blank((120, 120), n_channels=3)
     new_im = im.as_PILImage()
     assert_allclose(np.asarray(new_im.getdata()).reshape(im.pixels.shape),
                     (im.pixels * 255).astype(np.uint8))
 
 
 def test_image_extract_channels():
-    image = Image(np.random.rand(3, 120, 120))
+    image = Image(np.random.rand(3, 120, 120), copy=False)
     extracted = image.extract_channels(0)
     assert_equal(extracted.pixels, image.pixels[[0], ...])
 
 
 def test_image_extract_channels_multiple():
-    image = Image(np.random.rand(3, 120, 120))
+    image = Image(np.random.rand(3, 120, 120), copy=False)
     extracted = image.extract_channels([0, 2])
     assert_equal(extracted.pixels[0], image.pixels[0])
     assert_equal(extracted.pixels[1], image.pixels[2])
 
 
 def test_image_extract_channels_multiple_reversed():
-    image = Image(np.random.rand(3, 120, 120))
+    image = Image(np.random.rand(3, 120, 120), copy=False)
     extracted = image.extract_channels([2, 0])
     assert_equal(extracted.pixels[0], image.pixels[2])
     assert_equal(extracted.pixels[1], image.pixels[0])
@@ -680,27 +759,27 @@ def test_image_extract_channels_multiple_reversed():
 
 def test_diagonal_greyscale():
     image = Image.init_blank((100, 250), n_channels=1)
-    assert image.diagonal == (100 ** 2 + 250 ** 2) ** 0.5
+    assert image.diagonal() == (100 ** 2 + 250 ** 2) ** 0.5
 
 
 def test_diagonal_color():
     image = Image.init_blank((100, 250), n_channels=3)
-    assert image.diagonal == (100 ** 2 + 250 ** 2) ** 0.5
+    assert image.diagonal() == (100 ** 2 + 250 ** 2) ** 0.5
 
 
 def test_diagonal_greyscale_ndim():
     image = Image.init_blank((100, 250, 50), n_channels=1)
-    assert image.diagonal == (100 ** 2 + 250 ** 2 + 50 ** 2) ** 0.5
+    assert image.diagonal() == (100 ** 2 + 250 ** 2 + 50 ** 2) ** 0.5
 
 
 def test_diagonal_kchannel_ndim():
     image = Image.init_blank((100, 250, 50), n_channels=5)
-    assert image.diagonal == (100 ** 2 + 250 ** 2 + 50 ** 2) ** 0.5
+    assert image.diagonal() == (100 ** 2 + 250 ** 2 + 50 ** 2) ** 0.5
 
 
 def test_rescale_to_diagonal():
     image = Image.init_blank((8, 6), n_channels=2)
-    assert image.diagonal == 10
+    assert image.diagonal() == 10
     rescaled = image.rescale_to_diagonal(5)
     assert rescaled.shape == (4, 3)
     assert rescaled.n_channels == 2

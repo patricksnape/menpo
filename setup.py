@@ -1,65 +1,66 @@
-import os
+import platform
 import sys
+import pkg_resources
 from setuptools import setup, find_packages, Extension
 import versioneer
+from Cython.Build import cythonize
 from glob import glob
 
 
-on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
+SYS_PLATFORM = platform.system().lower()
+IS_LINUX = 'linux' in SYS_PLATFORM
+IS_OSX = 'darwin' == SYS_PLATFORM
+IS_WIN = 'windows' == SYS_PLATFORM
 
-if on_rtd:
-    install_requires = []
-    ext_modules = []
-    include_dirs = []
-    cython_exts = []
-else:
-    from Cython.Build import cythonize
-    import numpy as np
 
-    # ---- C/C++ EXTENSIONS ---- #
-    cython_modules = ['menpo/shape/mesh/normals.pyx',
-                      'menpo/feature/windowiterator.pyx',
-                      'menpo/feature/gradient.pyx',
-                      'menpo/external/skimage/_warps_cy.pyx',
-                      'menpo/image/extract_patches.pyx']
+# ---- C/C++ EXTENSIONS ---- #
+cython_modules = [
+    'menpo/external/skimage/_warps_cy.pyx',
+    'menpo/feature/windowiterator.pyx',
+    'menpo/feature/gradient.pyx',
+    'menpo/image/patches.pyx',
+    'menpo/shape/mesh/normals.pyx'
+]
 
-    cython_exts = cythonize(cython_modules, quiet=True)
-    cython_exts += cythonize([
+
+cython_exts = cythonize(cython_modules)
+cython_exts += cythonize([
         Extension('menpo.transform.piecewiseaffine.fastpwa',
                   include_dirs=['menpo/transform/piecewiseaffine/fastpwa/opcode',
-                               'menpo/transform/piecewiseaffine/fastpwa/opcode/Ice'],
+                                'menpo/transform/piecewiseaffine/fastpwa/opcode/Ice'],
                   language='c++',
-                  sources=glob('menpo/transform/piecewiseaffine/fastpwa/opcode/OPC_*.cpp') +
-                          glob('menpo/transform/piecewiseaffine/fastpwa/opcode/Ice/Ice*.cpp') +
+                  sources=['menpo/transform/piecewiseaffine/fastpwa.pyx'] +
+                          list(glob('menpo/transform/piecewiseaffine/fastpwa/opcode/OPC_*.cpp')) +
+                          list(glob('menpo/transform/piecewiseaffine/fastpwa/opcode/Ice/Ice*.cpp')) +
                           ['menpo/transform/piecewiseaffine/fastpwa/opcode/Opcode.cpp',
-                           'menpo/transform/piecewiseaffine/fastpwa/opcode_wrapper.cpp',
-                           'menpo/transform/piecewiseaffine/fastpwa.pyx'])
-    ])
-    include_dirs = [np.get_include()]
-    install_requires = ['numpy>=1.9.1,<1.10',
-                        'scipy>=0.15,<0.16',
-                        'matplotlib>=1.4,<1.5',
-                        'pillow==2.7.0',
-                        'Cython>=0.21,<0.22']
+                           'menpo/transform/piecewiseaffine/fastpwa/opcode_wrapper.cpp'])
+])
+# Perform a small amount of gymnastics to improve the compilation output on
+# each platform (including finding numpy without importing it)
+numpy_incl = pkg_resources.resource_filename('numpy', 'core/include')
+for ext in cython_exts:
+    if numpy_incl not in ext.include_dirs:
+        ext.include_dirs.append(numpy_incl)
+    if IS_LINUX or IS_OSX:
+        ext.extra_compile_args.append('-Wno-unused-function')
 
-    if sys.version_info.major == 2:
-        install_requires.append('pathlib==1.0')
 
-# Versioneer allows us to automatically generate versioning from
-# our git tagging system which makes releases simpler.
-versioneer.VCS = 'git'
-versioneer.versionfile_source = 'menpo/_version.py'
-versioneer.versionfile_build = 'menpo/_version.py'
-versioneer.tag_prefix = 'v'  # tags are like v1.2.0
-versioneer.parentdir_prefix = 'menpo-'  # dirname like 'menpo-v1.2.0'
+# Please see conda/meta.yaml for other binary dependencies
+install_requires = ['numpy>=1.10,<2.0',
+                    'scipy>=0.16,<1.0',
+                    'matplotlib>=1.4,<2.0',
+                    'pillow>=3.0,<4.0',
+                    'cython>=0.23']
+
+if sys.version_info.major == 2:
+    install_requires.append('pathlib==1.0')
 
 setup(name='menpo',
       version=versioneer.get_version(),
       cmdclass=versioneer.get_cmdclass(),
-      description='iBUG Facial Modelling Toolkit',
-      author='James Booth',
-      author_email='james.booth08@imperial.ac.uk',
-      include_dirs=include_dirs,
+      description='A Python toolkit for handling annotated data',
+      author='The Menpo Team',
+      author_email='hello@menpo.org',
       ext_modules=cython_exts,
       packages=find_packages(),
       install_requires=install_requires,

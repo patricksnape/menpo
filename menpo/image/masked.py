@@ -1,8 +1,12 @@
 from __future__ import division
 from warnings import warn
 import numpy as np
-binary_erosion = None  # expensive, from scipy.ndimage
 
+binary_erosion = None  # expensive, from scipy.ndimage
+binary_dilation = None  # expensive, from scipy.ndimage
+
+from menpo.base import MenpoDeprecationWarning
+from menpo.transform import Translation
 from menpo.visualize.base import ImageViewer
 
 from .base import Image
@@ -120,6 +124,96 @@ class MaskedImage(Image):
             pixels = np.ones((n_channels,) + shape, dtype=dtype) * fill
         return cls(pixels, copy=False, mask=mask)
 
+    @classmethod
+    def init_from_channels_at_back(cls, pixels, mask=None):
+        r"""
+        Create an Image from a set of pixels where the channels axis is on
+        the last axis (the back). This is common in other frameworks, and
+        therefore this method provides a convenient means of creating a menpo
+        Image from such data. Note that a copy is always created due to the
+        need to rearrange the data.
+
+        Parameters
+        ----------
+        pixels : ``(M, N ..., Q, C)`` `ndarray`
+            Array representing the image pixels, with the last axis being
+            channels.
+        mask : ``(M, N)`` `bool ndarray` or :map:`BooleanImage`, optional
+            A binary array representing the mask. Must be the same
+            shape as the image. Only one mask is supported for an image (so the
+            mask is applied to every channel equally).
+
+        Returns
+        -------
+        image : :map:`Image`
+            A new image from the given pixels, with the FIRST axis as the
+            channels.
+        """
+        return cls(np.rollaxis(pixels, -1), mask=mask)
+
+    @classmethod
+    def init_from_pointcloud(cls, pointcloud, group=None, boundary=0,
+                             constrain_mask=True, n_channels=1, fill=0,
+                             dtype=np.float):
+        r"""
+        Create an Image that is big enough to contain the given pointcloud.
+        The pointcloud will be translated to the origin and then translated
+        according to its bounds in order to fit inside the new image.
+        An optional boundary can be provided in order to increase the space
+        around the boundary of the pointcloud. The boundary will be added
+        to *all sides of the image* and so a boundary of 5 provides 10 pixels
+        of boundary total for each dimension.
+
+        By default, the mask will be constrained to the convex hull of the
+        provided pointcloud.
+
+        Parameters
+        ----------
+        pointcloud : :map:`PointCloud`
+            Pointcloud to place inside the newly created image.
+        group : `str`, optional
+            If ``None``, the pointcloud will only be used to create the image.
+            If a `str` then the pointcloud will be attached as a landmark
+            group to the image, with the given string as key.
+        boundary : `float`
+            A optional padding distance that is added to the pointcloud bounds.
+            Default is ``0``, meaning the max/min of tightest possible
+            containing image is returned.
+        n_channels : `int`, optional
+            The number of channels to create the image with.
+        fill : `int`, optional
+            The value to fill all pixels with.
+        dtype : numpy data type, optional
+            The data type of the image.
+        constrain_mask : `bool`, optional
+            If ``True``, the mask will be constrained to the convex hull
+            of the provided pointcloud. If ``False``, the mask will be all
+            ``True``.
+
+        Returns
+        -------
+        image : :map:`MaskedImage`
+            A new image with the same size as the given pointcloud, optionally
+            with the pointcloud attached as landmarks and the mask constrained
+            to the convex hull of the pointcloud.
+        """
+        # Translate pointcloud to the origin
+        minimum = pointcloud.bounds(boundary=boundary)[0]
+        origin_pc = Translation(-minimum).apply(pointcloud)
+        image_shape = origin_pc.range(boundary=boundary)
+        if constrain_mask:
+            new_mask = BooleanImage.init_from_pointcloud(
+                origin_pc, group=None, boundary=boundary, constrain=True,
+                fill=False)
+        else:
+            new_mask = None
+
+        new_image = cls.init_blank(image_shape, n_channels=n_channels,
+                                   fill=fill, dtype=dtype, mask=new_mask)
+        if group is not None:
+            new_image.landmarks[group] = origin_pc
+        return new_image
+
     def as_unmasked(self, copy=True, fill=None):
         r"""
         Return a copy of this image without the masking behavior.
@@ -133,9 +227,9 @@ class MaskedImage(Image):
         copy : `bool`, optional
             If ``False``, the produced :map:`Image` will share pixels with
             ``self``. Only suggested to be used for performance.
-        fill : `float` or ``None``, optional
-            If ``None`` the mask is simply discarded. If a number, the
-             *unmasked* regions are filled with the given value.
+        fill : `float` or ``(n_channels,)`` iterable or ``None``, optional
+            If ``None`` the mask is simply discarded. If a scalar or iterable,
+            the *unmasked* regions are filled with the given value.
 
         Returns
         -------
@@ -145,6 +239,8 @@ class MaskedImage(Image):
         """
         img = Image(self.pixels, copy=copy)
         if fill is not None:
+            if not np.isscalar(fill):
+                fill = np.array(fill).reshape(self.n_channels, -1)
             img.pixels[..., ~self.mask.mask] = fill
 
         if self.has_landmarks:
@@ -205,6 +301,17 @@ class MaskedImage(Image):
 
     def set_masked_pixels(self, pixels, copy=True):
         r"""
+        Deprecated - please use the equivalent ``from_vector``
+        """
+        warn('This method is no longer supported and will be removed in a '
+             'future version of Menpo. '
+             'Use .from_vector() instead.',
+             MenpoDeprecationWarning)
+        self._set_masked_pixels(pixels, copy=copy)
+
+    # TODO: Replace _from_vector_inplace with this.
+    def _set_masked_pixels(self, pixels, copy=True):
+        r"""
         Update the masked pixels only to new values.
 
         Parameters
@@ -245,7 +352,7 @@ class MaskedImage(Image):
     def __str__(self):
         return ('{} {}D MaskedImage with {} channels. '
                 'Attached mask {:.1%} true'.format(
-            self._str_shape, self.n_dims, self.n_channels,
+            self._str_shape(), self.n_dims, self.n_channels,
             self.mask.proportion_true()))
 
     def _as_vector(self, keep_channels=False):
@@ -310,14 +417,15 @@ class MaskedImage(Image):
             # we can just reshape the array!
             image_data = vector.reshape(((n_channels,) + self.shape))
         else:
-            image_data = np.zeros((n_channels,) + self.shape)
+            image_data = np.zeros((n_channels,) + self.shape,
+                                  dtype=vector.dtype)
             pixels_per_channel = vector.reshape((n_channels, -1))
             image_data[..., self.mask.mask] = pixels_per_channel
         new_image = MaskedImage(image_data, mask=self.mask)
         new_image.landmarks = self.landmarks
         return new_image
 
-    def from_vector_inplace(self, vector, copy=True):
+    def _from_vector_inplace(self, vector, copy=True):
         r"""
         Takes a flattened vector and updates this image by reshaping
         the vector to the correct pixels and channels. Note that the only
@@ -337,15 +445,16 @@ class MaskedImage(Image):
         Warning
             If ``copy=False`` cannot be honored.
         """
-        self.set_masked_pixels(vector.reshape((self.n_channels, -1)),
-                               copy=copy)
+        self._set_masked_pixels(vector.reshape((self.n_channels, -1)),
+                                copy=copy)
 
     def _view_2d(self, figure_id=None, new_figure=False, channels=None,
                  masked=True, interpolation='bilinear', cmap_name=None,
                  alpha=1., render_axes=False, axes_font_name='sans-serif',
                  axes_font_size=10, axes_font_style='normal',
                  axes_font_weight='normal', axes_x_limits=None,
-                 axes_y_limits=None, figure_size=(10, 8)):
+                 axes_y_limits=None, axes_x_ticks=None, axes_y_ticks=None,
+                 figure_size=(10, 8)):
         r"""
         View the image using the default image viewer. This method will appear
         on the Image as ``view`` if the Image is 2D.
@@ -397,10 +506,20 @@ class MaskedImage(Image):
                 {ultralight, light, normal, regular, book, medium, roman,
                 semibold, demibold, demi, bold, heavy, extra bold, black}
 
-        axes_x_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the x axis.
+        axes_x_limits : `float` or (`float`, `float`) or ``None``, optional
+            The limits of the x axis. If `float`, then it sets padding on the
+            right and left of the Image as a percentage of the Image's width. If
+            `tuple` or `list`, then it defines the axis limits. If ``None``, then
+            the limits are set automatically.
         axes_y_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the y axis.
+            The limits of the y axis. If `float`, then it sets padding on the
+            top and bottom of the Image as a percentage of the Image's height. If
+            `tuple` or `list`, then it defines the axis limits. If ``None``, then
+            the limits are set automatically.
+        axes_x_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the x axis.
+        axes_y_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the y axis.
         figure_size : (`float`, `float`) `tuple` or ``None``, optional
             The size of the figure in inches.
 
@@ -412,17 +531,13 @@ class MaskedImage(Image):
         mask = self.mask.mask if masked else None
         return ImageViewer(figure_id, new_figure, self.n_dims,
                            self.pixels, channels=channels,
-                           mask=mask).render(render_axes=render_axes,
-                                             axes_font_name=axes_font_name,
-                                             axes_font_size=axes_font_size,
-                                             axes_font_style=axes_font_style,
-                                             axes_font_weight=axes_font_weight,
-                                             axes_x_limits=axes_x_limits,
-                                             axes_y_limits=axes_y_limits,
-                                             figure_size=figure_size,
-                                             interpolation=interpolation,
-                                             cmap_name=cmap_name,
-                                             alpha=alpha)
+                           mask=mask).render(
+            interpolation=interpolation, cmap_name=cmap_name, alpha=alpha,
+            render_axes=render_axes, axes_font_name=axes_font_name,
+            axes_font_size=axes_font_size, axes_font_style=axes_font_style,
+            axes_font_weight=axes_font_weight, axes_x_limits=axes_x_limits,
+            axes_y_limits=axes_y_limits, axes_x_ticks=axes_x_ticks,
+            axes_y_ticks=axes_y_ticks, figure_size=figure_size)
 
     def _view_landmarks_2d(self, channels=None, masked=True, group=None,
                            with_labels=None, without_labels=None,
@@ -430,7 +545,7 @@ class MaskedImage(Image):
                            interpolation='bilinear', cmap_name=None, alpha=1.,
                            render_lines=True, line_colour=None, line_style='-',
                            line_width=1, render_markers=True, marker_style='o',
-                           marker_size=20, marker_face_colour=None,
+                           marker_size=5, marker_face_colour=None,
                            marker_edge_colour=None, marker_edge_width=1.,
                            render_numbering=False,
                            numbers_horizontal_align='center',
@@ -452,6 +567,7 @@ class MaskedImage(Image):
                            axes_font_name='sans-serif', axes_font_size=10,
                            axes_font_style='normal', axes_font_weight='normal',
                            axes_x_limits=None, axes_y_limits=None,
+                           axes_x_ticks=None, axes_y_ticks=None,
                            figure_size=(10, 8)):
         """
         Visualize the landmarks. This method will appear on the Image as
@@ -515,7 +631,7 @@ class MaskedImage(Image):
                 {., ,, o, v, ^, <, >, +, x, D, d, s, p, *, h, H, 1, 2, 3, 4, 8}
 
         marker_size : `int`, optional
-            The size of the markers in points^2.
+            The size of the markers in points.
         marker_face_colour : See Below, optional
             The face (filling) colour of the markers.
             Example options ::
@@ -639,10 +755,20 @@ class MaskedImage(Image):
                 {ultralight, light, normal, regular, book, medium, roman,
                 semibold,demibold, demi, bold, heavy, extra bold, black}
 
-        axes_x_limits : (`float`, `float`) `tuple` or ``None`` optional
-            The limits of the x axis.
-        axes_y_limits : (`float`, `float`) `tuple` or ``None`` optional
-            The limits of the y axis.
+        axes_x_limits : `float` or (`float`, `float`) or ``None``, optional
+            The limits of the x axis. If `float`, then it sets padding on the
+            right and left of the Image as a percentage of the Image's width. If
+            `tuple` or `list`, then it defines the axis limits. If ``None``, then
+            the limits are set automatically.
+        axes_y_limits : (`float`, `float`) `tuple` or ``None``, optional
+            The limits of the y axis. If `float`, then it sets padding on the
+            top and bottom of the Image as a percentage of the Image's height. If
+            `tuple` or `list`, then it defines the axis limits. If ``None``, then
+            the limits are set automatically.
+        axes_x_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the x axis.
+        axes_y_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the y axis.
         figure_size : (`float`, `float`) `tuple` or ``None`` optional
             The size of the figure in inches.
 
@@ -669,64 +795,33 @@ class MaskedImage(Image):
             legend_vertical_spacing, legend_border, legend_border_padding,
             legend_shadow, legend_rounded_corners, render_axes, axes_font_name,
             axes_font_size, axes_font_style, axes_font_weight, axes_x_limits,
-            axes_y_limits, figure_size)
+            axes_y_limits, axes_x_ticks, axes_y_ticks, figure_size)
 
-    def crop_inplace(self, min_indices, max_indices,
-                     constrain_to_boundary=True):
-        r"""
-        Crops this image using the given minimum and maximum indices.
-        Landmarks are correctly adjusted so they maintain their position
-        relative to the newly cropped image.
-
-        Parameters
-        ----------
-        min_indices: ``(n_dims, )`` `ndarray`
-            The minimum index over each dimension.
-        max_indices: ``(n_dims, )`` `ndarray`
-            The maximum index over each dimension.
-        constrain_to_boundary : `bool`, optional
-            If ``True`` the crop will be snapped to not go beyond this images
-            boundary. If ``False``, an :map:`ImageBoundaryError` will be raised
-            if an attempt is made to go beyond the edge of the image.
-
-        Returns
-        -------
-        cropped_image : `type(self)`
-            This image, but cropped.
-
-        Raises
-        ------
-        ValueError
-            ``min_indices`` and ``max_indices`` both have to be of length
-            ``n_dims``. All ``max_indices`` must be greater than
-            ``min_indices``.
-        :map`ImageBoundaryError`
-            Raised if ``constrain_to_boundary=False``, and an attempt is made
-            to crop the image in a way that violates the image bounds.
-        """
-        # crop our image
-        super(MaskedImage, self).crop_inplace(
-            min_indices, max_indices,
-            constrain_to_boundary=constrain_to_boundary)
-        # crop our mask
-        self.mask.crop_inplace(min_indices, max_indices,
-                               constrain_to_boundary=constrain_to_boundary)
-        return self
-
-    def crop_to_true_mask(self, boundary=0, constrain_to_boundary=True):
+    def crop_to_true_mask(self, boundary=0, constrain_to_boundary=True,
+                          return_transform=False):
         r"""
         Crop this image to be bounded just the `True` values of it's mask.
 
         Parameters
         ----------
-
-        boundary: `int`, optional
+        boundary : `int`, optional
             An extra padding to be added all around the true mask region.
         constrain_to_boundary : `bool`, optional
             If ``True`` the crop will be snapped to not go beyond this images
             boundary. If ``False``, an :map:`ImageBoundaryError` will be raised
             if an attempt is made to go beyond the edge of the image. Note that
             is only possible if ``boundary != 0``.
+        return_transform : `bool`, optional
+            If ``True``, then the :map:`Transform` object that was used to
+            perform the cropping is also returned.
+
+        Returns
+        -------
+        cropped_image : ``type(self)``
+            A copy of this image, cropped to the true mask.
+        transform : :map:`Transform`
+            The transform that was used. It only applies if
+            `return_transform` is ``True``.
 
         Raises
         ------
@@ -737,8 +832,9 @@ class MaskedImage(Image):
         min_indices, max_indices = self.mask.bounds_true(
             boundary=boundary, constrain_to_bounds=False)
         # no point doing the bounds check twice - let the crop do it only.
-        self.crop_inplace(min_indices, max_indices,
-                          constrain_to_boundary=constrain_to_boundary)
+        return self.crop(min_indices, max_indices,
+                         constrain_to_boundary=constrain_to_boundary,
+                         return_transform=return_transform)
 
     def sample(self, points_to_sample, order=1, mode='constant', cval=0.0):
         r"""
@@ -790,7 +886,8 @@ class MaskedImage(Image):
 
     # noinspection PyMethodOverriding
     def warp_to_mask(self, template_mask, transform, warp_landmarks=False,
-                     order=1, mode='constant', cval=0., batch_size=None):
+                     order=1, mode='constant', cval=0., batch_size=None,
+                     return_transform=False):
         r"""
         Warps this image into a different reference space.
 
@@ -832,11 +929,17 @@ class MaskedImage(Image):
             how many points in the image should be warped at a time, which
             keeps memory usage low. If ``None``, no batching is used and all
             points are warped at once.
+        return_transform : `bool`, optional
+            This argument is for internal use only. If ``True``, then the
+            :map:`Transform` object is also returned.
 
         Returns
         -------
         warped_image : ``type(self)``
             A copy of this image, warped.
+        transform : :map:`Transform`
+            The transform that was used. It only applies if
+            `return_transform` is ``True``.
         """
         # call the super variant and get ourselves a MaskedImage back
         # with a blank mask
@@ -846,11 +949,16 @@ class MaskedImage(Image):
                                           batch_size=batch_size)
         # Set the template mask as our mask
         warped_image.mask = template_mask
-        return warped_image
+        # optionally return the transform
+        if return_transform:
+            return warped_image, transform
+        else:
+            return warped_image
 
     # noinspection PyMethodOverriding
     def warp_to_shape(self, template_shape, transform, warp_landmarks=False,
-                      order=1, mode='constant', cval=0., batch_size=None):
+                      order=1, mode='constant', cval=0., batch_size=None,
+                      return_transform=False):
         """
         Return a copy of this :map:`MaskedImage` warped into a different
         reference space.
@@ -894,11 +1002,17 @@ class MaskedImage(Image):
             how many points in the image should be warped at a time, which
             keeps memory usage low. If ``None``, no batching is used and all
             points are warped at once.
+        return_transform : `bool`, optional
+            This argument is for internal use only. If ``True``, then the
+            :map:`Transform` object is also returned.
 
         Returns
         -------
         warped_image : :map:`MaskedImage`
             A copy of this image, warped.
+        transform : :map:`Transform`
+            The transform that was used. It only applies if
+            `return_transform` is ``True``.
         """
         # call the super variant and get ourselves an Image back
         warped_image = Image.warp_to_shape(self, template_shape, transform,
@@ -911,18 +1025,19 @@ class MaskedImage(Image):
                                        mode=mode, cval=cval)
         # efficiently turn the Image into a MaskedImage, attaching the
         # landmarks
-        masked_warped_image = MaskedImage(warped_image.pixels, mask=mask,
-                                          copy=False)
-        if warped_image.has_landmarks:
-            masked_warped_image.landmarks = warped_image.landmarks
+        masked_warped_image = warped_image.as_masked(mask=mask, copy=False)
         if hasattr(warped_image, 'path'):
             masked_warped_image.path = warped_image.path
-        return masked_warped_image
+        # optionally return the transform
+        if return_transform:
+            return masked_warped_image, transform
+        else:
+            return masked_warped_image
 
-    def normalize_std_inplace(self, mode='all', limit_to_mask=True):
+    def normalize_std(self, mode='all', limit_to_mask=True):
         r"""
-        Normalizes this image such that it's pixel values have zero mean and
-        unit variance.
+        Returns a copy of this image normalized such that it's pixel values
+        have zero mean and unit variance.
 
         Parameters
         ----------
@@ -935,15 +1050,24 @@ class MaskedImage(Image):
             pixels.
             If ``False``, the normalization is wrt all pixels, regardless of
             their masking value.
-        """
-        self._normalize_inplace(np.std, mode=mode,
-                                limit_to_mask=limit_to_mask)
 
-    def normalize_norm_inplace(self, mode='all', limit_to_mask=True,
-                               **kwargs):
+        Returns
+        -------
+        image : ``type(self)``
+            A copy of this image, normalized.
+        """
+        warn('This method is no longer supported and will be removed in a '
+             'future version of Menpo. '
+             'Use .normalize_std() instead (features package).',
+             MenpoDeprecationWarning)
+
+        return self._normalize(np.std, mode=mode,
+                               limit_to_mask=limit_to_mask)
+
+    def normalize_norm(self, mode='all', limit_to_mask=True, **kwargs):
         r"""
-        Normalizes this image such that it's pixel values have zero mean and
-        its norm equals 1.
+        Returns a copy of this image normalized such that it's pixel values
+        have zero mean and its norm equals 1.
 
         Parameters
         ----------
@@ -956,47 +1080,42 @@ class MaskedImage(Image):
             pixels.
             If ``False``, the normalization is wrt all pixels, regardless of
             their masking value.
+
+        Returns
+        -------
+        image : ``type(self)``
+            A copy of this image, normalized.
         """
+        warn('This method is no longer supported and will be removed in a '
+             'future version of Menpo. '
+             'Use .normalize_norm() instead (features package).',
+             MenpoDeprecationWarning)
 
         def scale_func(pixels, axis=None):
             return np.linalg.norm(pixels, axis=axis, **kwargs)
 
-        self._normalize_inplace(scale_func, mode=mode,
-                                limit_to_mask=limit_to_mask)
+        return self._normalize(scale_func, mode=mode,
+                               limit_to_mask=limit_to_mask)
 
-    def _normalize_inplace(self, scale_func, mode='all', limit_to_mask=True):
+    def _normalize(self, scale_func, mode='all', limit_to_mask=True):
+        from menpo.feature import normalize
         if limit_to_mask:
-            pixels = self.as_vector(keep_channels=True)
+            pixels = self
         else:
-            pixels = Image.as_vector(self, keep_channels=True)
-        if mode == 'all':
-            centered_pixels = pixels - np.mean(pixels)
-            scale_factor = scale_func(centered_pixels)
-        elif mode == 'per_channel':
-            centered_pixels = pixels - np.mean(pixels, axis=1)[..., None]
-            scale_factor = scale_func(centered_pixels, axis=1)[..., None]
-        else:
-            raise ValueError("mode has to be 'all' or 'per_channel' - '{}' "
-                             "was provided instead".format(mode))
+            pixels = self.as_unmasked(copy=False)
 
-        if np.any(scale_factor == 0):
-            raise ValueError("Image has 0 variance - can't be "
-                             "normalized")
-        else:
-            normalized_pixels = centered_pixels / scale_factor
+        new_img = normalize(pixels, scale_func=scale_func, mode=mode)
 
         if limit_to_mask:
-            self.from_vector_inplace(normalized_pixels.flatten())
+            return new_img
         else:
-            Image.from_vector_inplace(self,
-                                      normalized_pixels.flatten())
+            return new_img.as_masked(copy=False, mask=self.mask.copy())
 
-    def constrain_mask_to_landmarks(self, group=None, label=None,
-                                    batch_size=None, point_in_pointcloud='pwa',
-                                    trilist=None):
+    def constrain_mask_to_landmarks(self, group=None, batch_size=None,
+                                    point_in_pointcloud='pwa'):
         r"""
-        Restricts this mask to be equal to the convex hull around the chosen
-        landmarks.
+        Returns a copy of this image whereby the mask is restricted to be equal
+        to the convex hull around the chosen landmarks.
 
         The choice of whether a pixel is inside or outside of the pointcloud
         is determined by the ``point_in_pointcloud`` parameter. By default
@@ -1011,9 +1130,11 @@ class MaskedImage(Image):
         group : `str`, optional
             The key of the landmark set that should be used. If ``None``,
             and if there is only one set of landmarks, this set will be used.
-        label: `str`, optional
-            The label of of the landmark manager that you wish to use. If no
-            label is passed, the convex hull of all landmarks is used.
+            If the landmarks in question are an instance of :map:`TriMesh`,
+            the triangulation of the landmarks will be used in the convex
+            hull calculation. If the landmarks are an instance of
+            :map:`PointCloud`, Delaunay triangulation will be used to
+            create a triangulation.
         batch_size : `int` or ``None``, optional
             This should only be considered for large images. Setting this value
             will cause constraining to become much slower. This size indicates
@@ -1030,51 +1151,64 @@ class MaskedImage(Image):
             ((d, n_dims) ndarray) to test and should return a (d, 1) boolean
             ndarray of whether the pixels were inside (True) or outside (False)
             of the :map:`PointCloud`.
-        trilist: ``(t, 3)`` `ndarray`, optional
-            Deprecated. Please provide a Trimesh instead of relying on this
-            parameter.
-        """
-        self.mask.constrain_to_pointcloud(
-            self.landmarks[group][label], trilist=trilist,
-            batch_size=batch_size, point_in_pointcloud=point_in_pointcloud)
 
-    def build_mask_around_landmarks(self, patch_size, group=None, label=None):
+        Returns
+        -------
+        constrained : :map:`MaskedImage`
+            A new image where the mask is constrained by the provided
+            landmarks.
+        """
+        copy = self.copy()
+        copy.mask = copy.mask.constrain_to_pointcloud(
+            copy.landmarks[group].lms, batch_size=batch_size,
+            point_in_pointcloud=point_in_pointcloud)
+        return copy
+
+    def build_mask_around_landmarks(self, patch_shape, group=None):
         r"""
-        Restricts this images mask to be patches around each landmark in
-        the chosen landmark group. This is useful for visualizing patch
-        based methods.
+        Deprecated - please use the equivalent
+        `constrain_mask_to_patches_around_landmarks` method.
+        """
+        warn('This method is no longer supported and will be removed in a '
+             'future version of Menpo. '
+             'Use .constrain_mask_to_patches_around_landmarks() instead.',
+             MenpoDeprecationWarning)
+        return self.constrain_mask_to_patches_around_landmarks(
+            patch_shape=patch_shape, group=group)
+
+    def constrain_mask_to_patches_around_landmarks(self, patch_shape,
+                                                   group=None):
+        r"""
+        Returns a copy of this image whereby the mask is restricted to be
+        patches around each landmark in the chosen landmark group. The
+        patch will be centred on the nearest pixel for each point in
+        the chosen landmark group.
 
         Parameters
         ----------
         patch_shape : `tuple`
-            The size of the patch. Any floating point values are rounded up
-            to the nearest integer.
+            The size of the patch.
         group : `str`, optional
             The key of the landmark set that should be used. If ``None``,
             and if there is only one set of landmarks, this set will be used.
-        label: `str`, optional
-            The label of of the landmark manager that you wish to use. If no
-            label is passed, the convex hull of all landmarks is used.
+
+        Returns
+        -------
+        constrained : :map:`MaskedImage`
+            A new image where the mask is constrained as patches centred on each
+            point in the provided landmarks.
         """
-        pc = self.landmarks[group][label]
-        patch_size = np.ceil(patch_size)
-        patch_half_size = patch_size / 2
-        mask = np.zeros(self.shape)
-        max_x = self.shape[0] - 1
-        max_y = self.shape[1] - 1
-
-        for i, point in enumerate(pc.points):
-            start = np.floor(point - patch_half_size).astype(int)
-            finish = np.floor(point + patch_half_size).astype(int)
-            x, y = np.mgrid[start[0]:finish[0], start[1]:finish[1]]
-            # deal with boundary cases
-            x[x > max_x] = max_x
-            y[y > max_y] = max_y
-            x[x < 0] = 0
-            y[y < 0] = 0
-            mask[x.flatten(), y.flatten()] = True
-
-        self.mask = BooleanImage(mask)
+        copy = self.copy()
+        # get the selected pointcloud
+        pc = copy.landmarks[group].lms
+        # temporarily set all mask values to False
+        copy.mask.pixels[:] = False
+        # create a patches array of the correct size, full of True values
+        patches = np.ones((pc.n_points, 1, 1, int(patch_shape[0]),
+                           int(patch_shape[1])), dtype=np.bool)
+        # set True patches around pointcloud centers
+        copy.mask = copy.mask.set_patches(patches, pc)
+        return copy
 
     def set_boundary_pixels(self, value=0.0, n_pixels=1):
         r"""
@@ -1085,15 +1219,46 @@ class MaskedImage(Image):
 
         Parameters
         ----------
-        value : float or (n_channels, 1) ndarray
-        n_pixels : int, optional
+        value : `float` or (n_channels, 1) ndarray
+        n_pixels : `int`, optional
             The number of pixels along the mask boundary that will be set to 0.
 
         Returns
         -------
-         : :map:`MaskedImage`
-            The copy of the image for which the n pixels along its mask
+        new_image : :map:`MaskedImage`
+            The copy of the image for which the ``n`` pixels along its mask
             boundary have been set to a particular value.
+        """
+        copy = self.copy()
+        global binary_erosion
+        if binary_erosion is None:
+            from scipy.ndimage import binary_erosion  # expensive
+        # Erode the edge of the mask in by one pixel
+        eroded_mask = binary_erosion(copy.mask.mask, iterations=n_pixels)
+
+        # replace the eroded mask with the diff between the two
+        # masks. This is only true in the region we want to nullify.
+        np.logical_and(~eroded_mask, copy.mask.mask, out=eroded_mask)
+        # set all the boundary pixels to a particular value
+        copy.pixels[..., eroded_mask] = value
+        return copy
+
+    def erode(self, n_pixels=1):
+        r"""
+        Returns a copy of this :map:`MaskedImage` in which the mask has been
+        shrunk by n pixels along its boundary.
+
+        Parameters
+        ----------
+        n_pixels : `int`, optional
+            The number of pixels by which we want to shrink the mask along
+            its own boundary.
+
+        Returns
+        -------
+        eroded_image : :map:`MaskedImage`
+            The copy of the masked image in which the mask has been shrunk
+            by n pixels along its boundary.
         """
         global binary_erosion
         if binary_erosion is None:
@@ -1101,8 +1266,114 @@ class MaskedImage(Image):
         # Erode the edge of the mask in by one pixel
         eroded_mask = binary_erosion(self.mask.mask, iterations=n_pixels)
 
-        # replace the eroded mask with the diff between the two
-        # masks. This is only true in the region we want to nullify.
-        np.logical_and(~eroded_mask, self.mask.mask, out=eroded_mask)
-        # set all the boundary pixels to a particular value
-        self.pixels[..., eroded_mask] = value
+        image = self.copy()
+        image.mask = BooleanImage(eroded_mask)
+        return image
+
+    def dilate(self, n_pixels=1):
+        r"""
+        Returns a copy of this :map:`MaskedImage` in which its mask has
+        been expanded by n pixels along its boundary.
+
+        Parameters
+        ----------
+        n_pixels : `int`, optional
+            The number of pixels by which we want to expand the mask along
+            its own boundary.
+
+        Returns
+        -------
+        dilated_image : :map:`MaskedImage`
+            The copy of the masked image in which the mask has been expanded
+            by n pixels along its boundary.
+        """
+        global binary_dilation
+        if binary_dilation is None:
+            from scipy.ndimage import binary_dilation  # expensive
+        # Erode the edge of the mask in by one pixel
+        dilated_mask = binary_dilation(self.mask.mask, iterations=n_pixels)
+
+        image = self.copy()
+        image.mask = BooleanImage(dilated_mask)
+        return image
+
+    def rasterize_landmarks(self, group=None, render_lines=True, line_style='-',
+                            line_colour='b', line_width=1, render_markers=True,
+                            marker_style='o', marker_size=1,
+                            marker_face_colour='b', marker_edge_colour='b',
+                            marker_edge_width=1, backend='matplotlib'):
+        r"""
+        This method provides the ability to rasterize 2D landmarks onto the
+        image. The returned image has the specified landmark groups rasterized
+        onto the image - which is useful for things like creating result
+        examples or rendering videos with annotations.
+
+        Since multiple landmark groups can be specified, all arguments can take
+        lists of parameters that map to the provided groups list. Therefore, the
+        parameters must be lists of the correct length or a single parameter to
+        apply to every landmark group.
+
+        Multiple backends are provided, all with different strengths. The
+        'pillow' backend is very fast, but not very flexible. The `matplotlib`
+        backend should be feature compatible with other Menpo rendering methods,
+        but is much slower due to the overhead of creating a figure to render
+        into.
+
+        Images will always be rendered masked with a black background.
+        If an unmasked image is required, please use :meth:`as_unmasked`.
+
+        Parameters
+        ----------
+        group : `str` or `list` of `str`, optional
+            The landmark group key, or a list of keys.
+        render_lines : `bool`, optional
+            If ``True``, and the provided landmark group is a
+            :map:`PointDirectedGraph`, the edges are rendered.
+        line_style : `str`, optional
+            The style of the edge line. Not all backends support this argument.
+        line_colour : `str` or `tuple`, optional
+            A Matplotlib style colour or a backend dependant colour.
+        line_width : `int`, optional
+            The width of the line to rasterize.
+        render_markers : `bool`, optional
+            If ``True``, render markers at the coordinates of each landmark.
+        marker_style : `str`, optional
+            A Matplotlib marker style. Not all backends support all marker
+            styles.
+        marker_size : `int`, optional
+            The size of the marker - different backends use different scale
+            spaces so consistent output may by difficult.
+        marker_face_colour : `str`, optional
+            A Matplotlib style colour or a backend dependant colour.
+        marker_edge_colour : `str`, optional
+            A Matplotlib style colour or a backend dependant colour.
+        marker_edge_width : `int`, optional
+            The width of the marker edge. Not all backends support this.
+        backend : {'matplotlib', 'pillow'}, optional
+            The backend to use.
+
+        Returns
+        -------
+        rasterized_image : :map:`Image`
+            The image with the landmarks rasterized directly into the pixels.
+
+        Raises
+        ------
+        ValueError
+            Only 2D images are supported.
+        ValueError
+            Only RGB (3-channel) or Greyscale (1-channel) images are supported.
+        """
+        from .rasterize import rasterize_landmarks_2d
+        # Ensure that the image is ALWAYS masked - to make it consistent
+        # between backends - the background will be black. as_unmasked should be
+        # used to fiddle with the background colour.
+        im = self.as_unmasked(copy=True, fill=0)
+        return rasterize_landmarks_2d(
+            im, group=group, render_lines=render_lines,
+            line_style=line_style, line_colour=line_colour,
+            line_width=line_width, render_markers=render_markers,
+            marker_style=marker_style, marker_size=marker_size,
+            marker_face_colour=marker_face_colour,
+            marker_edge_colour=marker_edge_colour,
+            marker_edge_width=marker_edge_width, backend=backend)

@@ -2,35 +2,52 @@ package:
   name: menpo
   version: {{ environ['CONDACI_VERSION'] }}
 
+source:
+  path: ../
+
+build:
+  number: 0
+  script: python setup.py install --single-version-externally-managed --record=record.txt
+
 requirements:
   build:
     - python
     - setuptools
-    - numpy >=1.9.1,<1.10
-    - cython 0.21*
+    - numpy >=1.10,<2.0
+    - cython >=0.23
 
   run:
     - python
     - pathlib 1.0  # [py2k]
 
     # Scientific Python Stack
-    - numpy >=1.9.1,<1.10
-    - scipy 0.15.*
-    - matplotlib 1.4.*
-    - pillow  2.7.0
+    - numpy >=1.10,<2.0
+    - scipy >=0.16,<1.0
+    - pillow >=3.0,<4.0
+    - ffmpeg >=2.7,<3.0
 
-    # Convienience dependences (not strictly required)
+    # Features
+    - cyvlfeat >=0.4.3,<0.5
+
+    # Visualization
+    - matplotlib >=1.4,<2.0
+
+    # Test dependencies
     - mock
     - nose
-    - pip
-    - ipython-notebook
 
 test:
   requires:
-  - coverage
+    - coverage
+
+  files:
+    - .coveragerc
 
   imports:
-  - menpo
+    - menpo
+
+  commands:
+    - nosetests menpo -v --with-coverage --cover-package=menpo
 
 about:
   home: https://github.com/menpo/menpo/

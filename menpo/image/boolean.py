@@ -1,10 +1,10 @@
 from functools import partial
 from warnings import warn
-import warnings
 import numpy as np
 
-from .base import Image
-from menpo.base import MenpoDeprecationWarning
+from menpo.transform import Translation
+from .base import Image, _convert_patches_list_to_single_array
+from .patches import set_patches
 
 
 def pwa_point_in_pointcloud(pcloud, indices, batch_size=None):
@@ -142,6 +142,58 @@ class BooleanImage(Image):
             mask = np.zeros(shape, dtype=np.bool)
         return cls(mask, copy=False)
 
+    @classmethod
+    def init_from_pointcloud(cls, pointcloud, group=None, boundary=0,
+                             constrain=True, fill=True):
+        r"""
+        Create an Image that is big enough to contain the given pointcloud.
+        The pointcloud will be translated to the origin and then translated
+        according to its bounds in order to fit inside the new image.
+        An optional boundary can be provided in order to increase the space
+        around the boundary of the pointcloud. The boundary will be added
+        to *all sides of the image* and so a boundary of 5 provides 10 pixels
+        of boundary total for each dimension.
+
+        By default, the mask will be constrained to the convex hull of the
+        provided pointcloud.
+
+        Parameters
+        ----------
+        pointcloud : :map:`PointCloud`
+            Pointcloud to place inside the newly created image.
+        group : `str`, optional
+            If ``None``, the pointcloud will only be used to create the image.
+            If a `str` then the pointcloud will be attached as a landmark
+            group to the image, with the given string as key.
+        boundary : `float`
+            A optional padding distance that is added to the pointcloud bounds.
+            Default is ``0``, meaning the max/min of tightest possible
+            containing image is returned.
+        fill : `int`, optional
+            The value to fill all pixels with.
+        constrain : `bool`, optional
+            If ``True``, the ``True`` values will be image will be constrained
+            to the convex hull of the provided pointcloud. If ``False``,
+            the mask will be the value of ``fill``.
+
+        Returns
+        -------
+        image : :map:`MaskedImage`
+            A new image with the same size as the given pointcloud, optionally
+            with the pointcloud attached as landmarks and the mask constrained
+            to the convex hull of the pointcloud.
+        """
+        # Translate pointcloud to the origin
+        minimum = pointcloud.bounds(boundary=boundary)[0]
+        origin_pc = Translation(-minimum).apply(pointcloud)
+        image_shape = origin_pc.range(boundary=boundary)
+        new_image = cls.init_blank(image_shape, fill=fill)
+        if constrain:
+            new_image = new_image.constrain_to_pointcloud(origin_pc)
+        if group is not None:
+            new_image.landmarks[group] = origin_pc
+        return new_image
+
     def as_masked(self, mask=None, copy=True):
         r"""
         Impossible for a :map:`BooleanImage` to be transformed to a
@@ -223,7 +275,7 @@ class BooleanImage(Image):
 
     def __str__(self):
         return ('{} {}D mask, {:.1%} '
-                'of which is True'.format(self._str_shape, self.n_dims,
+                'of which is True'.format(self._str_shape(), self.n_dims,
                                           self.proportion_true()))
 
     def from_vector(self, vector, copy=True):
@@ -260,12 +312,6 @@ class BooleanImage(Image):
             mask.path = self.path
         return mask
 
-    def invert_inplace(self):
-        r"""
-        Inverts this Boolean Image inplace.
-        """
-        self.pixels = ~self.pixels
-
     def invert(self):
         r"""
         Returns a copy of this boolean image, which is inverted.
@@ -277,7 +323,7 @@ class BooleanImage(Image):
             and all ``False`` values are ``True``.
         """
         inverse = self.copy()
-        inverse.invert_inplace()
+        inverse.pixels = ~self.pixels
         return inverse
 
     def bounds_true(self, boundary=0, constrain_to_bounds=True):
@@ -377,7 +423,8 @@ class BooleanImage(Image):
 
     # noinspection PyMethodOverriding
     def warp_to_mask(self, template_mask, transform, warp_landmarks=True,
-                     mode='constant', cval=False, batch_size=None):
+                     mode='constant', cval=False, batch_size=None,
+                     return_transform=False):
         r"""
         Return a copy of this :map:`BooleanImage` warped into a different
         reference space.
@@ -410,21 +457,28 @@ class BooleanImage(Image):
             how many points in the image should be warped at a time, which
             keeps memory usage low. If ``None``, no batching is used and all
             points are warped at once.
+        return_transform : `bool`, optional
+            This argument is for internal use only. If ``True``, then the
+            :map:`Transform` object is also returned.
 
         Returns
         -------
         warped_image : :map:`BooleanImage`
             A copy of this image, warped.
+        transform : :map:`Transform`
+            The transform that was used. It only applies if
+            `return_transform` is ``True``.
         """
         # enforce the order as 0, as this is boolean data, then call super
-        return Image.warp_to_mask(self, template_mask, transform,
-                                  warp_landmarks=warp_landmarks,
-                                  order=0, mode=mode, cval=cval,
-                                  batch_size=batch_size)
+        return Image.warp_to_mask(
+            self, template_mask, transform, warp_landmarks=warp_landmarks,
+            order=0, mode=mode, cval=cval, batch_size=batch_size,
+            return_transform=return_transform)
 
     # noinspection PyMethodOverriding
     def warp_to_shape(self, template_shape, transform, warp_landmarks=True,
-                      mode='constant', cval=False, order=None, batch_size=None):
+                      mode='constant', cval=False, order=None,
+                      batch_size=None, return_transform=False):
         """
         Return a copy of this :map:`BooleanImage` warped into a different
         reference space.
@@ -458,17 +512,23 @@ class BooleanImage(Image):
             how many points in the image should be warped at a time, which
             keeps memory usage low. If ``None``, no batching is used and all
             points are warped at once.
+        return_transform : `bool`, optional
+            This argument is for internal use only. If ``True``, then the
+            :map:`Transform` object is also returned.
 
         Returns
         -------
         warped_image : :map:`BooleanImage`
             A copy of this image, warped.
+        transform : :map:`Transform`
+            The transform that was used. It only applies if
+            `return_transform` is ``True``.
         """
         # call the super variant and get ourselves an Image back
         # note that we force the use of order=0 for BooleanImages.
         warped = Image.warp_to_shape(self, template_shape, transform,
-                                     warp_landmarks=warp_landmarks,
-                                     order=0, mode=mode, cval=cval,
+                                     warp_landmarks=warp_landmarks, order=0,
+                                     mode=mode, cval=cval,
                                      batch_size=batch_size)
         # unfortunately we can't escape copying here, let BooleanImage
         # convert us to np.bool
@@ -477,10 +537,14 @@ class BooleanImage(Image):
             boolean_image.landmarks = warped.landmarks
         if hasattr(warped, 'path'):
             boolean_image.path = warped.path
-        return boolean_image
+        # optionally return the transform
+        if return_transform:
+            return boolean_image, transform
+        else:
+            return boolean_image
 
-    def _build_warped_to_mask(self, template_mask, sampled_pixel_values,
-                              **kwargs):
+    def _build_warp_to_mask(self, template_mask, sampled_pixel_values,
+                            **kwargs):
         r"""
         Builds the warped image from the template mask and sampled pixel values.
         """
@@ -495,51 +559,64 @@ class BooleanImage(Image):
             warped_img.pixels[:, warped_img.mask] = sampled_pixel_values
         return warped_img
 
-    def constrain_to_landmarks(self, group=None, label=None, trilist=None,
-                               batch_size=None):
+    def constrain_to_landmarks(self, group=None, batch_size=None):
         r"""
-        Restricts this mask to be equal to the convex hull around the
-        landmarks chosen. This is not a per-pixel convex hull, but instead
-        relies on a triangulated approximation.
+        Returns a copy of this image whereby the ``True`` values in the image
+        are restricted to be equal to the convex hull around the landmarks
+        chosen. This is not a per-pixel convex hull, but instead relies on a
+        triangulated approximation. If the landmarks in question are an instance
+        of :map:`TriMesh`, the triangulation of the landmarks will be used in
+        the convex hull calculation. If the landmarks are an instance of
+        :map:`PointCloud`, Delaunay triangulation will be used to create a
+        triangulation.
 
         Parameters
         ----------
         group : `str`, optional
             The key of the landmark set that should be used. If ``None``,
             and if there is only one set of landmarks, this set will be used.
-        label: `str`, optional
-            The label of of the landmark manager that you wish to use. If no
-            label is passed, the convex hull of all landmarks is used.
-        trilist: ``(t, 3)`` `ndarray`, optional
-            Triangle list to be used on the landmarked points in selecting
-            the mask region. If ``None``, defaults to performing Delaunay
-            triangulation on the points.
         batch_size : `int` or ``None``, optional
             This should only be considered for large images. Setting this value
             will cause constraining to become much slower. This size indicates
             how many points in the image should be checked at a time, which
             keeps memory usage low. If ``None``, no batching is used and all
             points are checked at once.
+
+        Returns
+        -------
+        constrained : :map:`BooleanImage`
+            The new boolean image, constrained by the given landmark group.
         """
-        self.constrain_to_pointcloud(self.landmarks[group][label],
-                                     trilist=trilist)
+        return self.constrain_to_pointcloud(self.landmarks[group].lms,
+                                            batch_size=batch_size)
 
     def constrain_to_pointcloud(self, pointcloud, batch_size=None,
-                                point_in_pointcloud='pwa', trilist=None,):
+                                point_in_pointcloud='pwa'):
         r"""
-        Restricts this mask to be equal to the convex hull around a pointcloud.
-        The choice of whether a pixel is inside or outside of the pointcloud
-        is determined by the ``point_in_pointcloud`` parameter. By default
-        a Piecewise Affine transform is used to test for containment, which
-        is useful when building efficiently aligning images. For large images,
-        a faster and pixel-accurate method can be used ('convex_hull').
-        Alternatively, a callable can be provided to override the test. By
-        default, the provided implementations are only valid for 2D images.
+        Returns a copy of this image whereby the ``True`` values in the image
+        are restricted to be equal to the convex hull around a pointcloud. The
+        choice of whether a pixel is inside or outside of the pointcloud is
+        determined by the ``point_in_pointcloud`` parameter. By default a
+        Piecewise Affine transform is used to test for containment, which is
+        useful when aligning images by their landmarks. Triangluation will be
+        decided by Delauny - if you wish to customise it, a :map:`TriMesh`
+        instance can be passed for the ``pointcloud`` argument. In this case,
+        the triangulation of the Trimesh will be used to define the retained
+        region.
+
+        For large images, a faster and pixel-accurate method can be used (
+        'convex_hull'). Here, there is no specialization for
+        :map:`TriMesh` instances. Alternatively, a callable can be provided to
+        override the test. By default, the provided implementations are only
+        valid for 2D images.
+
 
         Parameters
         ----------
-        pointcloud : :map:`PointCloud`
-            The pointcloud of points that should be constrained to.
+        pointcloud : :map:`PointCloud` or :map:`TriMesh`
+            The pointcloud of points that should be constrained to. See
+            `point_in_pointcloud` for how in some cases a :map:`TriMesh` may be
+            used to control triangulation.
         batch_size : `int` or ``None``, optional
             This should only be considered for large images. Setting this value
             will cause constraining to become much slower. This size indicates
@@ -549,16 +626,21 @@ class BooleanImage(Image):
             the 'pwa' point_in_pointcloud choice.
         point_in_pointcloud : {'pwa', 'convex_hull'} or `callable`
             The method used to check if pixels in the image fall inside the
-            pointcloud or not. Can be accurate to a Piecewise Affine transform,
-            a pixel accurate convex hull or any arbitrary callable.
+            ``pointcloud`` or not. If 'pwa', Menpo's :map:`PiecewiseAffine`
+            transform will be used to test for containment. In this case
+            ``pointcloud`` should be a :map:`TriMesh`. If it isn't, Delauny
+            triangulation will be used to first triangulate ``pointcloud`` into
+            a  :map:`TriMesh` before testing for containment.
             If a callable is passed, it should take two parameters,
             the :map:`PointCloud` to constrain with and the pixel locations
             ((d, n_dims) ndarray) to test and should return a (d, 1) boolean
             ndarray of whether the pixels were inside (True) or outside (False)
             of the :map:`PointCloud`.
-        trilist: ``(t, 3)`` `ndarray`, optional
-            Deprecated. Please provide a Trimesh instead of relying on this
-            parameter.
+
+        Returns
+        -------
+        constrained : :map:`BooleanImage`
+            The new boolean image, constrained by the given pointcloud.
 
         Raises
         ------
@@ -567,6 +649,7 @@ class BooleanImage(Image):
         ValueError
             If the chosen ``point_in_pointcloud`` is unknown.
         """
+        copy = self.copy()
         if point_in_pointcloud in {'pwa', 'convex_hull'} and self.n_dims != 2:
             raise ValueError('Can only constrain mask on 2D images with the '
                              'default point_in_pointcloud implementations.'
@@ -574,17 +657,12 @@ class BooleanImage(Image):
                              'the new mask in this '
                              '{}D image'.format(self.n_dims))
 
-        if trilist is not None:
-            warnings.warn('trilist parameter is deprecated and is being '
-                          'ignored. Please provide a Trimesh instead of '
-                          'relying on this parameter.', MenpoDeprecationWarning)
-
         if point_in_pointcloud == 'pwa':
             point_in_pointcloud = partial(pwa_point_in_pointcloud,
                                           batch_size=batch_size)
         elif point_in_pointcloud == 'convex_hull':
             point_in_pointcloud = convex_hull_point_in_pointcloud
-        elif not hasattr(point_in_pointcloud, '__call__'):
+        elif not callable(point_in_pointcloud):
             # Not a function, or a string, so we have an error!
             raise ValueError('point_in_pointcloud must be a callable that '
                              'take two arguments: the Menpo PointCloud as a '
@@ -596,7 +674,7 @@ class BooleanImage(Image):
         bounds = pointcloud.bounds()
         # Convert to integer to try and reduce boundary fp rounding errors.
         bounds = [b.astype(np.int) for b in bounds]
-        indices = self.indices()
+        indices = copy.indices()
 
         # This loop is to ensure the code is multi-dimensional
         for k in range(self.n_dims):
@@ -604,7 +682,7 @@ class BooleanImage(Image):
             indices = indices[indices[:, k] <= bounds[1][k], :]
         # Due to only testing bounding box indices, make sure the mask starts
         # off as all False
-        self.pixels[:] = False
+        copy.pixels[:] = False
 
         # slice(0, 1) because we know we only have 1 channel
         # Slice all the channels, only inside the bounding box (for setting
@@ -612,4 +690,84 @@ class BooleanImage(Image):
         all_channels = [slice(0, 1)]
         slices = all_channels + [slice(bounds[0][k], bounds[1][k] + 1)
                                  for k in range(self.n_dims)]
-        self.pixels[slices].flat = point_in_pointcloud(pointcloud, indices)
+        copy.pixels[slices].flat = point_in_pointcloud(pointcloud, indices)
+        return copy
+
+    def set_patches(self, patches, patch_centers, offset=None,
+                    offset_index=None):
+        r"""
+        Set the values of a group of patches into the correct regions in a copy
+        of this image. Given an array of patches and a set of patch centers,
+        the patches' values are copied in the regions of the image that are
+        centred on the coordinates of the given centers.
+
+        The patches argument can have any of the two formats that are returned
+        from the `extract_patches()` and `extract_patches_around_landmarks()`
+        methods. Specifically it can be:
+
+            1. ``(n_center, n_offset, self.n_channels, patch_shape)`` `ndarray`
+            2. `list` of ``n_center * n_offset`` :map:`Image` objects
+
+        Currently only 2D images are supported.
+
+        Parameters
+        ----------
+        patches : `ndarray` or `list`
+            The values of the patches. It can have any of the two formats that
+            are returned from the `extract_patches()` and
+            `extract_patches_around_landmarks()` methods. Specifically, it can
+            either be an ``(n_center, n_offset, self.n_channels, patch_shape)``
+            `ndarray` or a `list` of ``n_center * n_offset`` :map:`Image`
+            objects.
+        patch_centers : :map:`PointCloud`
+            The centers to set the patches around.
+        offset : `list` or `tuple` or ``(1, 2)`` `ndarray` or ``None``, optional
+            The offset to apply on the patch centers within the image.
+            If ``None``, then ``(0, 0)`` is used.
+        offset_index : `int` or ``None``, optional
+            The offset index within the provided `patches` argument, thus the
+            index of the second dimension from which to sample. If ``None``,
+            then ``0`` is used.
+
+        Raises
+        ------
+        ValueError
+            If image is not 2D
+        ValueError
+            If offset does not have shape (1, 2)
+
+        Returns
+        -------
+        new_image : :map:`BooleanImage`
+            A new boolean image where the provided patch locations have been
+            set to the provided values.
+        """
+        # parse arguments
+        if self.n_dims != 2:
+            raise ValueError('Only two dimensional patch insertion is '
+                             'currently supported.')
+        if offset is None:
+            offset = np.zeros([1, 2], dtype=np.intp)
+        elif isinstance(offset, tuple) or isinstance(offset, list):
+            offset = np.asarray([offset])
+        offset = np.require(offset, dtype=np.intp)
+        if not offset.shape == (1, 2):
+            raise ValueError('The offset must be a tuple, a list or a '
+                             'numpy.array with shape (1, 2).')
+        if offset_index is None:
+            offset_index = 0
+
+        # if patches is a list, convert it to array
+        if isinstance(patches, list):
+            patches = _convert_patches_list_to_single_array(
+                patches, patch_centers.n_points)
+
+        copy = self.copy()
+        # convert pixels to uint8 so that they get recognized by cython
+        tmp_pixels = copy.pixels.astype(np.uint8)
+        # convert patches to uint8 as well and set them to pixels
+        set_patches(patches.astype(np.uint8), tmp_pixels, patch_centers.points,
+                    offset, offset_index)
+        # convert pixels back to bool
+        copy.pixels = tmp_pixels.astype(np.bool)
+        return copy

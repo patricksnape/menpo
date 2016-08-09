@@ -1,24 +1,47 @@
+import warnings
+from functools import partial
 import os
 from pathlib import Path
+import random
 
-from ..utils import _norm_path
-from menpo.base import menpo_src_dir_path
-from menpo.visualize import progress_bar_str, print_dynamic
+from menpo.base import (menpo_src_dir_path, LazyList, partial_doc,
+                        MenpoDeprecationWarning)
+from menpo.compatibility import basestring
+from menpo.visualize import print_progress
+
+from ..utils import (_norm_path, _possible_extensions_from_filepath,
+                     _normalize_extension)
+from .extensions import (image_landmark_types, image_types, pickle_types,
+                         ffmpeg_video_types)
 
 
-def data_dir_path():
-    r"""A path to the Menpo built in ./data folder on this machine.
+# TODO: Remove once deprecated
+def _parse_deprecated_normalise(normalise, normalize):
+    if normalise is not None and normalize is not None:
+        raise ValueError('normalise is now deprecated, do not set both '
+                         'normalize and normalise.')
+    elif normalise is not None:
+        warnings.warn('normalise is no longer supported and will be removed in '
+                      'a future version of Menpo. Use normalize instead.',
+                      MenpoDeprecationWarning)
+        normalize = normalise
+    elif normalize is None:
+        normalize = True
+    return normalize
+
+
+def _data_dir_path(base_path):
+    r"""A path to the built in ./data folder on this machine.
 
     Returns
     -------
-    ``pathlib.Path``
-        The path to the local Menpo ./data folder
-
+    path : ``pathlib.Path``
+        The path to the local ./data folder
     """
-    return menpo_src_dir_path() / 'data'
+    return base_path() / 'data'
 
 
-def data_path_to(asset_filename):
+def _data_path_to(data_dir_path, builtin_assets, asset_filename):
     r"""
     The path to a builtin asset in the ./data folder on this machine.
 
@@ -37,27 +60,164 @@ def data_path_to(asset_filename):
     ------
     ValueError
         If the asset_filename doesn't exist in the `data` folder.
-
     """
     asset_path = data_dir_path() / asset_filename
     if not asset_path.is_file():
         raise ValueError("{} is not a builtin asset: {}".format(
-            asset_filename, ls_builtin_assets()))
+            asset_filename, builtin_assets()))
     return asset_path
 
 
-def same_name(asset):
+def _import_builtin_asset(data_path_to, object_types, landmark_types,
+                          asset_name, **kwargs):
+    r"""Single builtin asset (landmark or image) importer.
+
+    Imports the relevant builtin asset from the ``./data`` directory that
+    ships with the project.
+
+    Parameters
+    ----------
+    asset_name : `str`
+        The filename of a builtin asset (see :map:`ls_builtin_assets`
+        for allowed values)
+
+    Returns
+    -------
+    asset :
+        An instantiated :map:`Image` or :map:`LandmarkGroup` asset.
+    """
+    if kwargs != {}:
+        normalize = _parse_deprecated_normalise(kwargs.get('normalise'),
+                                                kwargs.get('normalize'))
+        kwargs['normalize'] = normalize
+        if 'normalise' in kwargs:
+            del kwargs['normalise']
+
+    asset_path = data_path_to(asset_name)
+    # Import could be either an image or a set of landmarks, so we try
+    # importing them both separately.
+    try:
+        return _import(asset_path, object_types,
+                       landmark_ext_map=landmark_types,
+                       landmark_attach_func=_import_object_attach_landmarks,
+                       importer_kwargs=kwargs)
+    except ValueError:
+        return _import(asset_path, landmark_types,
+                       importer_kwargs=kwargs)
+
+
+def _ls_builtin_assets(data_dir_path):
+    r"""List all the builtin asset examples provided.
+
+    Returns
+    -------
+    file_paths : list of `str`
+        Filenames of all assets in the data directory shipped with the
+        project.
+    """
+    return [p.name for p in data_dir_path().glob('*') if not p.is_dir()]
+
+
+def _register_importer(ext_map, extension, callable):
     r"""
-    Menpo's default landmark resolver. Returns all landmarks found to have
+    Register a new importer for the given extension.
+
+    Parameters
+    ----------
+    ext_map : `{'str' -> 'callable'}` dict
+        Extensions map to callable.
+    extension : `str`
+        File extension to support. May be multi-part e.g. '.tar.gz'
+    callable : `callable`
+        The callable to invoke if a file with the provided extension is
+        discovered during importing. Should take a single argument (the
+        filepath) and any number of kwargs.
+    """
+    if not isinstance(extension, basestring):
+        raise ValueError('Only string type keys are supported.')
+    if extension in ext_map:
+        warnings.warn("Replacing an existing importer for the '{}' "
+                      "extension.".format(extension))
+    ext_map[_normalize_extension(extension)] = callable
+
+
+register_image_importer = partial_doc(_register_importer, image_types)
+
+register_video_importer = partial_doc(_register_importer, ffmpeg_video_types)
+
+register_landmark_importer = partial_doc(_register_importer,
+                                         image_landmark_types)
+
+register_pickle_importer = partial_doc(_register_importer, pickle_types)
+
+
+menpo_data_dir_path = partial_doc(_data_dir_path, menpo_src_dir_path)
+
+menpo_ls_builtin_assets = partial_doc(_ls_builtin_assets, menpo_data_dir_path)
+
+menpo_data_path_to = partial_doc(_data_path_to, menpo_data_dir_path,
+                                 menpo_ls_builtin_assets)
+
+_menpo_import_builtin_asset = partial_doc(_import_builtin_asset,
+                                          menpo_data_path_to,
+                                          image_types, image_landmark_types)
+
+
+def image_paths(pattern):
+    r"""
+    Return image filepaths that Menpo can import that match the glob pattern.
+    """
+    return glob_with_suffix(pattern, image_types)
+
+
+def video_paths(pattern):
+    r"""
+    Return video filepaths that Menpo can import that match the glob pattern.
+    """
+    return glob_with_suffix(pattern, ffmpeg_video_types)
+
+
+def landmark_file_paths(pattern):
+    r"""
+    Return landmark file filepaths that Menpo can import that match the glob
+    pattern.
+    """
+    return glob_with_suffix(pattern, image_landmark_types)
+
+
+def pickle_paths(pattern):
+    r"""
+    Return pickle filepaths that Menpo can import that match the glob
+    pattern.
+    """
+    return glob_with_suffix(pattern, pickle_types)
+
+
+def same_name(path, paths_callable=landmark_file_paths):
+    r"""
+    Default image landmark resolver. Returns all landmarks found to have
     the same stem as the asset.
     """
     # pattern finding all landmarks with the same stem
-    pattern = asset.path.with_suffix('.*')
-    # find all the landmarks we can with this name. Key is ext (without '.')
-    return {p.suffix[1:].upper(): p for p in landmark_file_paths(pattern)}
+    pattern = path.with_suffix('.*')
+    # find all the assets we can with this name. Key is extension.
+    return {p.suffix[1:].upper(): p for p in paths_callable(pattern)}
 
 
-def import_image(filepath, landmark_resolver=same_name, normalise=True):
+def same_name_video(path, frame_number,
+                    paths_callable=landmark_file_paths):
+    r"""
+    Default video landmark resolver. Returns all landmarks found to have
+    the same stem as the asset.
+    """
+    # pattern finding all landmarks with the same stem
+    pattern = path.with_name('{}_{}.*'.format(path.stem, frame_number))
+    # find all the assets we can with this name. Key is extension
+    return {p.suffix[1:].upper(): p for p in paths_callable(pattern)}
+
+
+def import_image(filepath, landmark_resolver=same_name, normalize=None,
+                 normalise=None):
     r"""Single image (and associated landmarks) importer.
 
     If an image file is found at `filepath`, returns an :map:`Image` or
@@ -73,27 +233,109 @@ def import_image(filepath, landmark_resolver=same_name, normalise=True):
         A relative or absolute filepath to an image file.
     landmark_resolver : `function`, optional
         This function will be used to find landmarks for the
-        image. The function should take one argument (the image itself) and
+        image. The function should take one argument (the path to the image) and
         return a dictionary of the form ``{'group_name': 'landmark_filepath'}``
         Default finds landmarks with the same name as the image file.
-    normalise : `bool`, optional
-        If ``True``, normalise the image pixels between 0 and 1 and convert
+    normalize : `bool`, optional
+        If ``True``, normalize the image pixels between 0 and 1 and convert
         to floating point. If false, the native datatype of the image will be
         maintained (commonly `uint8`). Note that in general Menpo assumes
         :map:`Image` instances contain floating point data - if you disable
         this flag you will have to manually convert the images you import to
         floating point before doing most Menpo operations. This however can be
         useful to save on memory usage if you only wish to view or crop images.
+    normalise: `bool`, optional
+        Deprecated version of normalize. Please use the normalize arg.
 
     Returns
     -------
     images : :map:`Image` or list of
         An instantiated :map:`Image` or subclass thereof or a list of images.
     """
-    kwargs = {'normalise': normalise}
+    normalize = _parse_deprecated_normalise(normalise, normalize)
+    kwargs = {'normalize': normalize}
     return _import(filepath, image_types,
                    landmark_ext_map=image_landmark_types,
                    landmark_resolver=landmark_resolver,
+                   landmark_attach_func=_import_object_attach_landmarks,
+                   importer_kwargs=kwargs)
+
+
+def import_video(filepath, landmark_resolver=same_name_video, normalize=None,
+                 normalise=None, importer_method='ffmpeg',
+                 exact_frame_count=True):
+    r"""Single video (and associated landmarks) importer.
+
+    If a video file is found at `filepath`, returns an :map:`LazyList` wrapping
+    all the frames of the video. By default, landmark files sharing the same
+    filename stem will be imported and attached with a group name based on the
+    extension of the landmark file appended with the frame number, although this
+    behavior can be customised (see `landmark_resolver`).
+
+    .. warning::
+
+        This method currently uses ffmpeg to perform the importing. In order
+        to recover accurate frame counts from videos it is necessary to use
+        ffprobe to count the frames. This involves reading the entire
+        video in to memory which may cause a delay in loading despite the lazy
+        nature of the video loading within Menpo. 
+        If ffprobe cannot be found, and `exact_frame_count` is ``False``,
+        Menpo falls back to ffmpeg itself which is not accurate and the user
+        should proceed at their own risk.
+
+    Parameters
+    ----------
+    filepath : `pathlib.Path` or `str`
+        A relative or absolute filepath to a video file.
+    landmark_resolver : `function`, optional
+        This function will be used to find landmarks for the
+        video. The function should take two arguments (the path to the video and
+        the frame number) and return a dictionary of the form ``{'group_name':
+        'landmark_filepath'}`` Default finds landmarks with the same name as the
+        video file, appended with '_{frame_number}'.
+    normalize : `bool`, optional
+        If ``True``, normalize the frame pixels between 0 and 1 and convert
+        to floating point. If ``False``, the native datatype of the image will
+        be maintained (commonly `uint8`). Note that in general Menpo assumes
+        :map:`Image` instances contain floating point data - if you disable this
+        flag you will have to manually convert the farmes you import to floating
+        point before doing most Menpo operations. This however can be useful to
+        save on memory usage if you only wish to view or crop the frames.
+    normalise : `bool`, optional
+        Deprecated version of normalize. Please use the normalize arg.
+    importer_method : {'ffmpeg'}, optional
+        A string representing the type of importer to use, by default ffmpeg
+        is used.
+    exact_frame_count: `bool`, optional
+        If ``True``, the import fails if ffprobe is not available
+        (reading from ffmpeg's output returns inexact frame count)
+
+    Returns
+    -------
+    frames : :map:`LazyList`
+        An lazy list of :map:`Image` or subclass thereof which wraps the frames
+        of the video. This list can be treated as a normal list, but the frame
+        is only read when the video is indexed or iterated.
+
+    Examples
+    --------
+    >>> video = menpo.io.import_video('video.avi')
+    >>> # Lazily load the 100th frame without reading the entire video
+    >>> frame100 = video[100]
+    """
+    normalize = _parse_deprecated_normalise(normalise, normalize)
+
+    kwargs = {'normalize': normalize, 'exact_frame_count':exact_frame_count}
+
+    video_importer_methods = {'ffmpeg': ffmpeg_video_types}
+    if importer_method not in video_importer_methods:
+        raise ValueError('Unsupported importer method requested. Valid values '
+                         'are: {}'.format(video_importer_methods.keys()))
+
+    return _import(filepath, video_importer_methods[importer_method],
+                   landmark_ext_map=image_landmark_types,
+                   landmark_resolver=landmark_resolver,
+                   landmark_attach_func=_import_lazylist_attach_landmarks,
                    importer_kwargs=kwargs)
 
 
@@ -116,7 +358,7 @@ def import_landmark_file(filepath, asset=None):
     return _import(filepath, image_landmark_types, asset=asset)
 
 
-def import_pickle(filepath):
+def import_pickle(filepath, **kwargs):
     r"""Import a pickle file of arbitrary Python objects.
 
     Menpo unambiguously uses ``.pkl`` as it's choice of extension for Pickle
@@ -136,23 +378,25 @@ def import_pickle(filepath):
     object : `object`
         Whatever Python objects are present in the Pickle file
     """
-    return _import(filepath, pickle_types)
+    return _import(filepath, pickle_types, importer_kwargs=kwargs)
 
 
-def import_images(pattern, max_images=None, landmark_resolver=same_name,
-                  normalise=True, verbose=False):
+def import_images(pattern, max_images=None, shuffle=False,
+                  landmark_resolver=same_name, normalize=None,
+                  normalise=None, as_generator=False, verbose=False):
     r"""Multiple image (and associated landmarks) importer.
 
-    For each image found yields an :map:`Image` or
+    For each image found creates an importer than returns a :map:`Image` or
     subclass representing it. By default, landmark files sharing the same
     filename stem will be imported and attached with a group name based on the
     extension of the landmark file, although this behavior can be customised
     (see `landmark_resolver`). If the image defines a mask, this mask will be
     imported.
 
-    Note that this is a generator function. This allows for pre-processing
-    of data to take place as data is imported (e.g. cropping images to
-    landmarks as they are imported for memory efficiency).
+    Note that this is a function returns a :map:`LazyList`. Therefore, the
+    function will return immediately and indexing into the returned list
+    will load an image at run time. If all images should be loaded, then simply
+    wrap the returned :map:`LazyList` in a Python `list`.
 
     Parameters
     ----------
@@ -163,28 +407,37 @@ def import_images(pattern, max_images=None, landmark_resolver=same_name,
     max_images : positive `int`, optional
         If not ``None``, only import the first ``max_images`` found. Else,
         import all.
+    shuffle : `bool`, optional
+        If ``True``, the order of the returned images will be randomised. If
+        ``False``, the order of the returned images will be alphanumerically
+        ordered.
     landmark_resolver : `function`, optional
         This function will be used to find landmarks for the
         image. The function should take one argument (the image itself) and
         return a dictionary of the form ``{'group_name': 'landmark_filepath'}``
         Default finds landmarks with the same name as the image file.
-    normalise : `bool`, optional
-        If ``True``, normalise the image pixels between 0 and 1 and convert
+    normalize : `bool`, optional
+        If ``True``, normalize the image pixels between 0 and 1 and convert
         to floating point. If false, the native datatype of the image will be
         maintained (commonly `uint8`). Note that in general Menpo assumes
         :map:`Image` instances contain floating point data - if you disable
         this flag you will have to manually convert the images you import to
         floating point before doing most Menpo operations. This however can be
         useful to save on memory usage if you only wish to view or crop images.
+    normalise : `bool`, optional
+        Deprecated version of normalize. Please use the normalize arg.
+    as_generator : `bool`, optional
+        If ``True``, the function returns a generator and assets will be yielded
+        one after another when the generator is iterated over.
     verbose : `bool`, optional
         If ``True`` progress of the importing will be dynamically reported with
         a progress bar.
 
     Returns
     -------
-    generator : `generator` yielding :map:`Image` or list of
-        Generator yielding :map:`Image` instances found to match the glob
-        pattern provided.
+    lazy_list : :map:`LazyList` or generator of :map:`Image`
+        A :map:`LazyList` or generator yielding :map:`Image` instances found
+        to match the glob pattern provided.
 
     Raises
     ------
@@ -195,25 +448,149 @@ def import_images(pattern, max_images=None, landmark_resolver=same_name,
     --------
     Import images at 20% scale from a huge collection:
 
-    >>> images = []
-    >>> for img in menpo.io.import_images('./massive_image_db/*'):
-    >>>    # rescale to a sensible size as we go
-    >>>    images.append(img.rescale(0.2))
+    >>> rescale_20p = lambda x: x.rescale(0.2)
+    >>> images =  menpo.io.import_images('./massive_image_db/*')  # Returns immediately
+    >>> images = images.map(rescale_20p)  # Returns immediately
+    >>> images[0]  # Get the first image, resize, lazily loaded
     """
-    kwargs = {'normalise': normalise}
-    for asset in _import_glob_generator(pattern, image_types,
-                                        max_assets=max_images,
-                                        landmark_resolver=landmark_resolver,
-                                        landmark_ext_map=image_landmark_types,
-                                        verbose=verbose,
-                                        importer_kwargs=kwargs):
-        yield asset
+    normalize = _parse_deprecated_normalise(normalise, normalize)
+
+    kwargs = {'normalize': normalize}
+    return _import_glob_lazy_list(
+        pattern, image_types,
+        max_assets=max_images, shuffle=shuffle,
+        landmark_resolver=landmark_resolver,
+        landmark_ext_map=image_landmark_types,
+        landmark_attach_func=_import_object_attach_landmarks,
+        as_generator=as_generator,
+        verbose=verbose,
+        importer_kwargs=kwargs
+    )
 
 
-def import_landmark_files(pattern, max_landmarks=None, verbose=False):
-    r"""Multiple landmark file import generator.
+def import_videos(pattern, max_videos=None, shuffle=False,
+                  landmark_resolver=same_name_video, normalize=None,
+                  normalise=None, importer_method='ffmpeg',
+                  exact_frame_count=True, as_generator=False, verbose=False):
+    r"""Multiple video (and associated landmarks) importer.
 
-    Note that this is a generator function.
+    For each video found yields a :map:`LazyList`. By default, landmark files
+    sharing the same filename stem will be imported and attached with a group
+    name based on the extension of the landmark file appended with the frame
+    number, although this behavior can be customised (see `landmark_resolver`).
+
+    Note that this is a function returns a :map:`LazyList`. Therefore, the
+    function will return immediately and indexing into the returned list
+    will load an image at run time. If all images should be loaded, then simply
+    wrap the returned :map:`LazyList` in a Python `list`.
+
+    .. warning::
+
+        This method currently uses ffmpeg to perform the importing. In order
+        to recover accurate frame counts from videos it is necessary to use
+        ffprobe to count the frames. This involves reading the entire
+        video in to memory which may cause a delay in loading despite the lazy
+        nature of the video loading within Menpo. 
+        If ffprobe cannot be found, and `exact_frame_count` is ``False``,
+        Menpo falls back to ffmpeg itself which is not accurate and the user
+        should proceed at their own risk.
+
+    Parameters
+    ----------
+    pattern : `str`
+        A glob path pattern to search for videos. Every video found to match
+        the glob will be imported one by one. See :map:`video_paths` for more
+        details of what videos will be found.
+    max_videos : positive `int`, optional
+        If not ``None``, only import the first ``max_videos`` found. Else,
+        import all.
+    shuffle : `bool`, optional
+        If ``True``, the order of the returned videos will be randomised. If
+        ``False``, the order of the returned videos will be alphanumerically
+        ordered.
+    landmark_resolver : `function`, optional
+        This function will be used to find landmarks for the
+        video. The function should take two arguments (the path to the video and
+        the frame number) and return a dictionary of the form ``{'group_name':
+        'landmark_filepath'}`` Default finds landmarks with the same name as the
+        video file, appended with '_{frame_number}'.
+    normalize : `bool`, optional
+        If ``True``, normalize the frame pixels between 0 and 1 and convert
+        to floating point. If ``False``, the native datatype of the image will
+        be maintained (commonly `uint8`). Note that in general Menpo assumes
+        :map:`Image` instances contain floating point data - if you disable this
+        flag you will have to manually convert the frames you import to floating
+        point before doing most Menpo operations. This however can be useful to
+        save on memory usage if you only wish to view or crop the frames.
+    normalise : `bool`, optional
+        Deprecated version of normalize. Please use the normalize arg.
+    importer_method : {'ffmpeg'}, optional
+        A string representing the type of importer to use, by default ffmpeg
+        is used.
+    as_generator : `bool`, optional
+        If ``True``, the function returns a generator and assets will be yielded
+        one after another when the generator is iterated over.
+    exact_frame_count: `bool`, optional
+        If True, the import fails if ffmprobe is not available
+        (reading from ffmpeg's output returns inexact frame count)
+    verbose : `bool`, optional
+        If ``True`` progress of the importing will be dynamically reported with
+        a progress bar.
+
+    Returns
+    -------
+    lazy_list : :map:`LazyList` or generator of :map:`LazyList`
+        A :map:`LazyList` or generator yielding :map:`LazyList` instances that
+        wrap the video object.
+
+    Raises
+    ------
+    ValueError
+        If no videos are found at the provided glob.
+
+    Examples
+    --------
+    Import videos at and rescale every frame of each video:
+
+    >>> videos = []
+    >>> for video in menpo.io.import_videos('./set_of_videos/*'):
+    >>>    frames = []
+    >>>    for frame in video:
+    >>>        # rescale to a sensible size as we go
+    >>>        frames.append(frame.rescale(0.2))
+    >>>    videos.append(frames)
+    """
+    normalize = _parse_deprecated_normalise(normalise, normalize)
+
+    kwargs = {'normalize': normalize, 'exact_frame_count':exact_frame_count}
+    video_importer_methods = {'ffmpeg': ffmpeg_video_types}
+    if importer_method not in video_importer_methods:
+        raise ValueError('Unsupported importer method requested. Valid values '
+                         'are: {}'.format(video_importer_methods.keys()))
+
+    return _import_glob_lazy_list(
+        pattern, video_importer_methods[importer_method],
+        max_assets=max_videos, shuffle=shuffle,
+        landmark_resolver=landmark_resolver,
+        landmark_ext_map=image_landmark_types,
+        landmark_attach_func=_import_lazylist_attach_landmarks,
+        as_generator=as_generator,
+        verbose=verbose,
+        importer_kwargs=kwargs
+    )
+
+
+def import_landmark_files(pattern, max_landmarks=None, shuffle=False,
+                          as_generator=False, verbose=False):
+    r"""Import Multiple landmark files.
+
+    For each landmark file found returns an importer than
+    returns a :map:`LandmarkGroup`.
+
+    Note that this is a function returns a :map:`LazyList`. Therefore, the
+    function will return immediately and indexing into the returned list
+    will load the landmarks at run time. If all landmarks should be loaded, then
+    simply wrap the returned :map:`LazyList` in a Python `list`.
 
     Parameters
     ----------
@@ -222,221 +599,211 @@ def import_landmark_files(pattern, max_landmarks=None, verbose=False):
         landmark file found to match the glob will be imported one by one.
         See :map:`landmark_file_paths` for more details of what landmark files
         will be found.
-
-    max_landmark_files : positive `int`, optional
+    max_landmarks : positive `int`, optional
         If not ``None``, only import the first ``max_landmark_files`` found.
         Else, import all.
-
+    shuffle : `bool`, optional
+        If ``True``, the order of the returned landmark files will be
+        randomised. If ``False``, the order of the returned landmark files will
+        be  alphanumerically  ordered.
+    as_generator : `bool`, optional
+        If ``True``, the function returns a generator and assets will be yielded
+        one after another when the generator is iterated over.
     verbose : `bool`, optional
         If ``True`` progress of the importing will be dynamically reported.
 
     Returns
     -------
-    generator : `generator` yielding :map:`LandmarkGroup`
-        Generator yielding :map:`LandmarkGroup` instances found to match the
-        glob pattern provided.
+    lazy_list : :map:`LazyList` or generator of :map:`LandmarkGroup`
+        A :map:`LazyList` or generator yielding :map:`LandmarkGroup` instances
+        found to match the glob pattern provided.
 
     Raises
     ------
     ValueError
         If no landmarks are found at the provided glob.
     """
-    for asset in _import_glob_generator(pattern, image_landmark_types,
-                                        max_assets=max_landmarks,
-                                        verbose=verbose):
-        yield asset
+    return _import_glob_lazy_list(pattern, image_landmark_types,
+                                  max_assets=max_landmarks, shuffle=shuffle,
+                                  as_generator=as_generator, verbose=verbose)
 
 
-def import_pickles(pattern, max_pickles=None, verbose=False):
-    r"""Multiple pickle file import generator.
-
-    Note that this is a generator function.
+def import_pickles(pattern, max_pickles=None, shuffle=False, as_generator=False,
+                   verbose=False):
+    r"""Import multiple pickle files.
 
     Menpo unambiguously uses ``.pkl`` as it's choice of extension for pickle
     files. Menpo also supports automatic importing of gzip compressed pickle
     files - matching files with extension ``pkl.gz`` will be automatically
     un-gzipped and imported.
 
+    Note that this is a function returns a :map:`LazyList`. Therefore, the
+    function will return immediately and indexing into the returned list
+    will load the landmarks at run time. If all pickles should be loaded, then
+    simply wrap the returned :map:`LazyList` in a Python `list`.
+
     Parameters
     ----------
     pattern : `str`
         The glob path pattern to search for pickles. Every pickle file found
         to match the glob will be imported one by one.
-
     max_pickles : positive `int`, optional
         If not ``None``, only import the first ``max_pickles`` found.
         Else, import all.
-
+    shuffle : `bool`, optional
+        If ``True``, the order of the returned pickles will be randomised. If
+        ``False``, the order of the returned pickles will be alphanumerically
+        ordered.
+    as_generator : `bool`, optional
+        If ``True``, the function returns a generator and assets will be yielded
+        one after another when the generator is iterated over.
     verbose : `bool`, optional
         If ``True`` progress of the importing will be dynamically reported.
 
     Returns
     -------
-    generator : generator yielding `object`
-        Generator yielding whatever Python object is present in the pickle
-        files that match the glob pattern provided.
+    lazy_list : :map:`LazyList` or generator of Python objects
+        A :map:`LazyList` or generator yielding Python objects inside the
+        pickle files found to match the glob pattern provided.
 
     Raises
     ------
     ValueError
         If no pickles are found at the provided glob.
-
     """
-    for asset in _import_glob_generator(pattern, pickle_types,
-                                        max_assets=max_pickles,
-                                        verbose=verbose):
-        yield asset
+    return _import_glob_lazy_list(pattern, pickle_types,
+                                  max_assets=max_pickles, shuffle=shuffle,
+                                  as_generator=as_generator, verbose=verbose)
 
 
-def _import_builtin_asset(asset_name):
-    r"""Single builtin asset (landmark or image) importer.
-
-    Imports the relevant builtin asset from the ``./data`` directory that
-    ships with Menpo.
-
-    Parameters
-    ----------
-    asset_name : `str`
-        The filename of a builtin asset (see :map:`ls_builtin_assets`
-        for allowed values)
-
-    Returns
-    -------
-    asset :
-        An instantiated :map:`Image` or :map:`LandmarkGroup` asset.
-    """
-    asset_path = data_path_to(asset_name)
-    # Import could be either an image or a set of landmarks, so we try
-    # importing them both separately.
-    try:
-        return _import(asset_path, image_types,
-                       landmark_ext_map=image_landmark_types)
-    except ValueError:
-        return _import(asset_path, image_landmark_types)
-
-
-def ls_builtin_assets():
-    r"""List all the builtin asset examples provided in Menpo.
-
-    Returns
-    -------
-    list of strings
-        Filenames of all assets in the data directory shipped with Menpo
-
-    """
-    return [p.name for p in data_dir_path().glob('*')]
-
-
-def import_builtin(x):
-
-    def execute():
-        return _import_builtin_asset(x)
-
-    return execute
-
-
-class BuiltinAssets(object):
-
-    def __call__(self, asset_name):
-        return _import_builtin_asset(asset_name)
-
-import_builtin_asset = BuiltinAssets()
-
-for asset in ls_builtin_assets():
-    setattr(import_builtin_asset, asset.replace('.', '_'),
-            import_builtin(asset))
-
-
-def image_paths(pattern):
-    r"""
-    Return image filepaths that Menpo can import that match the glob pattern.
-    """
-    return glob_with_suffix(pattern, image_types)
-
-
-def landmark_file_paths(pattern):
-    r"""
-    Return landmark file filepaths that Menpo can import that match the glob
-    pattern.
-    """
-    return glob_with_suffix(pattern, image_landmark_types)
-
-
-def _import_glob_generator(pattern, extension_map, max_assets=None,
-                           landmark_resolver=same_name,
-                           landmark_ext_map=None, importer_kwargs=None,
+def _import_glob_lazy_list(pattern, extension_map, max_assets=None,
+                           landmark_resolver=same_name, shuffle=False,
+                           as_generator=False, landmark_ext_map=None,
+                           landmark_attach_func=None, importer_kwargs=None,
                            verbose=False):
-    filepaths = list(glob_with_suffix(pattern, extension_map))
-    if max_assets:
+    filepaths = list(glob_with_suffix(pattern, extension_map,
+                                      sort=(not shuffle)))
+    if shuffle:
+        random.shuffle(filepaths)
+    if (max_assets is not None) and max_assets <= 0:
+        raise ValueError('Max elements should be positive'
+                         ' ({} provided)'.format(max_assets))
+    elif max_assets:
         filepaths = filepaths[:max_assets]
+
     n_files = len(filepaths)
     if n_files == 0:
         raise ValueError('The glob {} yields no assets'.format(pattern))
-    for i, asset in enumerate(_multi_import_generator(filepaths, extension_map,
-                              landmark_resolver=landmark_resolver,
-                              landmark_ext_map=landmark_ext_map,
-                              importer_kwargs=importer_kwargs)):
-        if verbose:
-            print_dynamic('- Loading {} assets: {}'.format(
-                n_files, progress_bar_str(float(i + 1) / n_files,
-                                          show_bar=True)))
-        yield asset
+
+    lazy_list = LazyList([partial(_import, f, extension_map,
+                                  landmark_resolver=landmark_resolver,
+                                  landmark_ext_map=landmark_ext_map,
+                                  landmark_attach_func=landmark_attach_func,
+                                  importer_kwargs=importer_kwargs)
+                          for f in filepaths])
+
+    if verbose and as_generator:
+        # wrap the generator with the progress reporter
+        lazy_list = print_progress(lazy_list, prefix='Importing assets',
+                                   n_items=n_files)
+    elif verbose:
+        print('Found {} assets, index the returned LazyList to import.'.format(
+            n_files))
+
+    if as_generator:
+        return (a for a in lazy_list)
+    else:
+        return lazy_list
 
 
-def _import(filepath, extensions_map, keep_importer=False,
-            landmark_resolver=same_name,
-            landmark_ext_map=None, asset=None, importer_kwargs=None):
+def _import_object_attach_landmarks(built_objects, landmark_resolver,
+                                    landmark_ext_map=None):
+    # handle landmarks
+    if landmark_ext_map is not None:
+        for x in built_objects:
+            lm_paths = landmark_resolver(x.path)  # use the users fcn to find
+            # paths
+            if lm_paths is None:
+                continue
+            for group_name, lm_path in lm_paths.items():
+                lms = _import(lm_path, landmark_ext_map, asset=x)
+                if x.n_dims == lms.n_dims:
+                    x.landmarks[group_name] = lms
+
+
+def _import_lazylist_attach_landmarks(built_objects, landmark_resolver,
+                                      landmark_ext_map=None):
+    # handle landmarks
+    if landmark_ext_map is not None:
+        for k, x in enumerate(built_objects):
+            # Use the users function to find landmarks - builds a list
+            # of functions that we will map against the frames in order to
+            # attach a landmark per frame.
+            lm_resolvers = [partial(landmark_resolver, x.path, i)
+                            for i in range(len(x))]
+
+            def wrap_landmarks(lm_resolver, obj):
+                lm_paths = lm_resolver()
+                for group_name, lm_path in lm_paths.items():
+                    lms = _import(lm_path, landmark_ext_map, asset=obj)
+                    if obj.n_dims == lms.n_dims:
+                        obj.landmarks[group_name] = lms
+                return obj
+
+            # Provide the lm_resolver for each wrap_landmarks function and then
+            # lazily map against the underlying importers.
+            new_ll = x.map([partial(wrap_landmarks, lmr)
+                            for lmr in lm_resolvers])
+            built_objects[k] = new_ll
+
+
+def _import(filepath, extensions_map, landmark_resolver=same_name,
+            landmark_ext_map=None, landmark_attach_func=None,
+            asset=None, importer_kwargs=None):
     r"""
-    Creates an importer for the filepath passed in, and then calls build on
-    it, returning a list of assets or a single asset, depending on the
-    file type.
+    Finds an importer for the filepath passed in and then calls it with the
+    filepath and optionally an asset, returning either a list of assets or a
+    single asset, depending on the file type.
 
     The type of assets returned are specified by the `extensions_map`.
 
     Parameters
     ----------
-    filepath : string
-        The filepath to import
-    extensions_map : dictionary (String, :class:`menpo.io.base.Importer`)
+    filepath : `Path` or `str`
+        The filepath to import.
+    extensions_map : `dict` (String, :class:`menpo.io.base.Importer`)
         A map from extensions to importers. The importers are expected to be
         non-instantiated classes. The extensions are expected to
         contain the leading period eg. `.obj`.
-    keep_importer : bool, optional
-        If `True`, return the :class:`menpo.io.base.Importer` for each mesh
-        as well as the meshes.
-    landmark_ext_map : dictionary (str, :map:`Importer`), optional
+    landmark_ext_map : `dict` (str, :map:`Importer`), optional
         If not None an attempt will be made to import annotations with
         extensions defined in this mapping. If None, no attempt will be
         made to import annotations.
-    landmark_resolver: function, optional
+    landmark_resolver : `callable`, optional
         If not None, this function will be used to find landmarks for each
         asset. The function should take one argument (the asset itself) and
         return a dictionary of the form {'group_name': 'landmark_filepath'}
-    asset: object, optional
-        If not None, the asset will be passed to the importer's build method
-        as the asset kwarg
-    importer_kwargs: dict, optional:
+    asset : `object`, optional
+        Passed through to the importer callable.
+    importer_kwargs : `dict`, optional
         kwargs that will be supplied to the importer if not None
 
     Returns
     -------
-    assets : list of assets or tuple of (assets, [:class:`menpo.io.base
-    .Importer`])
-        The asset or list of assets found in the filepath. If
-        `keep_importers` is `True` then the importer is returned.
+    assets : asset or list of assets
+        The loaded asset or list of assets.
     """
-    path = Path(_norm_path(filepath))
+    path = _norm_path(filepath)
     if not path.is_file():
         raise ValueError("{} is not a file".format(path))
+
     # below could raise ValueError as well...
-    importer = importer_for_filepath(path, extensions_map,
-                                     importer_kwargs=importer_kwargs)
-    if asset is not None:
-        built_objects = importer.build(asset=asset)
-    else:
-        built_objects = importer.build()
+    importer_callable = importer_for_filepath(path, extensions_map)
+    if importer_kwargs is None:
+        importer_kwargs = {}
+    built_objects = importer_callable(path, asset=asset, **importer_kwargs)
+
     # landmarks are iterable so check for list precisely
-    # enforce a list to make processing consistent
     if not isinstance(built_objects, list):
         built_objects = [built_objects]
 
@@ -447,96 +814,18 @@ def _import(filepath, extensions_map, keep_importer=False,
                 x.path = path
             except AttributeError:
                 pass  # that's fine! Probably a dict/list from PickleImporter.
-    # handle landmarks
-    if landmark_ext_map is not None:
-        for x in built_objects:
-            lm_paths = landmark_resolver(x)  # use the users fcn to find
-            # paths
-            if lm_paths is None:
-                continue
-            for group_name, lm_path in lm_paths.items():
-                lms = _import(lm_path, landmark_ext_map, asset=x)
-                if x.n_dims == lms.n_dims:
-                    x.landmarks[group_name] = lms
 
-    # undo list-ification (if we added it!)
+    if landmark_attach_func is not None:
+        landmark_attach_func(built_objects, landmark_resolver,
+                             landmark_ext_map=landmark_ext_map)
+
     if len(built_objects) == 1:
         built_objects = built_objects[0]
 
-    if keep_importer:
-        return built_objects, importer
-    else:
-        return built_objects
+    return built_objects
 
 
-def _multi_import_generator(filepaths, extensions_map, keep_importers=False,
-                            landmark_resolver=same_name,
-                            landmark_ext_map=None, importer_kwargs=None):
-    r"""
-    Generator yielding assets from the filepaths provided.
-
-    Note that if a single file yields multiple assets, each is yielded in
-    turn (this function will never yield an iterable of assets in one go).
-    Assets are yielded in alphabetical order from the filepaths provided.
-
-    Parameters
-    ----------
-    filepaths : list of strings
-        The filepaths to import. Assets are imported in alphabetical order
-    extensions_map : dictionary (String, :class:`menpo.io.base.Importer`)
-        A map from extensions to importers. The importers are expected to be
-        non-instantiated classes. The extensions are expected to
-        contain the leading period eg. `.obj`.
-    keep_importers : bool, optional
-        If `True`, return the :class:`menpo.io.base.Importer` for each mesh
-        as well as the meshes.
-    landmark_ext_map : dictionary (str, :map:`Importer`), optional
-        If not None an attempt will be made to import annotations with
-        extensions defined in this mapping. If None, no attempt will be
-        made to import annotations.
-    landmark_resolver: function, optional
-        If not None, this function will be used to find landmarks for each
-        asset. The function should take one argument (the asset itself) and
-        return a dictionary of the form {'group_name': 'landmark_filepath'}
-    importer_kwargs: dict, optional
-        kwargs to be supplied to the importer if not None
-
-    Yields
-    ------
-    asset :
-        An asset found at one of the filepaths.
-    importer: :class:`menpo.io.base.Importer`
-        Only if `keep_importers` is `True`. The importer used for the
-        yielded asset.
-    """
-    importer = None
-    for f in sorted(filepaths):
-        imported = _import(f, extensions_map, keep_importer=keep_importers,
-                           landmark_resolver=landmark_resolver,
-                           landmark_ext_map=landmark_ext_map,
-                           importer_kwargs=importer_kwargs)
-        if keep_importers:
-            assets, importer = imported
-        else:
-            assets = imported
-        # could be that there are many assets returned from one file.
-        # landmarks are iterable so check for list precisely
-        if isinstance(assets, list):
-            # there are multiple assets, and one importer.
-            # -> yield each asset in turn with the shared importer (if
-            # requested)
-            for asset in assets:
-                if keep_importers:
-                    yield asset, importer
-                else:
-                    yield asset
-        else:
-            # assets is a single item. Rather than checking (again! for
-            # importers, just yield the imported tuple
-            yield imported
-
-
-def _pathlib_glob_for_pattern(pattern):
+def _pathlib_glob_for_pattern(pattern, sort=True):
     r"""Generator for glob matching a string path pattern
 
     Splits the provided ``pattern`` into a root path for pathlib and a
@@ -547,6 +836,9 @@ def _pathlib_glob_for_pattern(pattern):
     pattern : `str`
         Path including glob patterns. If no glob patterns are present and the
         pattern is a dir, a '**/*' pattern will be automatically added.
+    sort : `bool`, optional
+        If True, the returned paths will be sorted. If False, no guarantees are
+        made about the ordering of the results.
 
     Yields
     ------
@@ -558,11 +850,12 @@ def _pathlib_glob_for_pattern(pattern):
         If the pattern doesn't contain a '*' wildcard and is not a directory
     """
     pattern = _norm_path(pattern)
-    gsplit = pattern.split('*', 1)
+    pattern_str = str(pattern)
+    gsplit = pattern_str.split('*', 1)
     if len(gsplit) == 1:
         # no glob provided. Is the provided pattern a dir?
         if Path(pattern).is_dir():
-            preglob = pattern
+            preglob = pattern_str
             pattern = '*'
         else:
             raise ValueError('{} is an invalid glob and '
@@ -576,10 +869,13 @@ def _pathlib_glob_for_pattern(pattern):
         preglob, pattern_prefix = os.path.split(preglob)
         pattern = pattern_prefix + pattern
     p = Path(preglob)
-    return sorted(p.glob(str(pattern)))
+    paths = p.glob(str(pattern))
+    if sort:
+        paths = sorted(paths)
+    return paths
 
 
-def glob_with_suffix(pattern, extensions_map):
+def glob_with_suffix(pattern, extensions_map, sort=True):
     r"""
     Filters the results from the glob pattern passed in to only those files
     that have an importer given in `extensions_map`.
@@ -592,21 +888,22 @@ def glob_with_suffix(pattern, extensions_map):
         A map from extensions to importers. The importers are expected to be
         non-instantiated classes. The extensions are expected to
         contain the leading period eg. `.obj`.
+    sort : `bool`, optional
+        If True, the returned paths will be sorted. If False, no guarantees are
+        made about the ordering of the results.
 
     Yields
     ------
     filepaths : list of string
         The list of filepaths that have valid extensions.
     """
-    for path in _pathlib_glob_for_pattern(pattern):
-        # we want to extract '.pkl.gz' as an extension - for this we need to
-        # use suffixes and join.
-        # .suffix only takes
-        if ''.join(path.suffixes) in extensions_map:
+    for path in _pathlib_glob_for_pattern(pattern, sort=sort):
+        possible_exts = _possible_extensions_from_filepath(path)
+        if any([ext in extensions_map for ext in possible_exts]):
             yield path
 
 
-def importer_for_filepath(filepath, extensions_map, importer_kwargs=None):
+def importer_for_filepath(filepath, extensions_map):
     r"""
     Given a filepath, return the appropriate importer as mapped by the
     extension map.
@@ -614,79 +911,46 @@ def importer_for_filepath(filepath, extensions_map, importer_kwargs=None):
     Parameters
     ----------
     filepath : `pathlib.Path`
-        The filepath to get importers for
+        The filepath to get importers for.
     extensions_map : dictionary (String, :class:`menpo.io.base.Importer`)
         A map from extensions to importers. The importers are expected to be
         a subclass of :class:`Importer`. The extensions are expected to
         contain the leading period eg. `.obj`.
-    importer_kwargs: dictionary, optional
-        kwargs that will be supplied to the importer if not None.
 
     Returns
     --------
     importer: :class:`menpo.io.base.Importer` instance
         Importer as found in the `extensions_map` instantiated for the
         filepath provided.
-
     """
-    suffix = ''.join(filepath.suffixes)
-    if suffix.isupper():
-        # If for some reason the ending is in capital letters, make them lower case first.
-        suffix = suffix.lower()
-    importer_type = extensions_map.get(suffix)
+    possible_exts = _possible_extensions_from_filepath(filepath)
+
     # we couldn't find an importer for all the suffixes (e.g .foo.bar)
     # maybe the file stem has '.' in it? -> try again but this time just use the
     # final suffix (.bar). (Note we first try '.foo.bar' as we want to catch
-    # cases like 'pkl.gz')
-    if importer_type is None and len(filepath.suffixes) > 1:
-        suffix = filepath.suffix
-        importer_type = extensions_map.get(suffix)
-    if importer_type is None:
+    # cases like '.pkl.gz')
+    importer_callable = None
+    while importer_callable is None and possible_exts:
+        importer_callable = extensions_map.get(possible_exts.pop(0))
+
+    if importer_callable is None:
         raise ValueError("{} does not have a "
-                         "suitable importer.".format(suffix))
-    if importer_kwargs is not None:
-        return importer_type(str(filepath), **importer_kwargs)
-    else:
-        return importer_type(str(filepath))
+                         "suitable importer.".format(filepath.name))
+    return importer_callable
 
 
-class Importer(object):
-    r"""
-    Abstract representation of an Importer. Construction of an importer simply
-    sets the filepaths etc up. To actually import the object and build a valid
-    representation, the `build` method must be called. This allows a set
-    of importers to be instantiated but the heavy duty importing to happen
-    separately.
+# Create special callable that can both be called with a builtin asset name
+# and has dynamic methods attached that list the available builtin assets
+class BuiltinAssets(object):
 
-    Parameters
-    ----------
-    filepath : string
-        An absolute filepath
-    """
+    def __init__(self, import_builtin_callable):
+        self.import_builtin_asset = import_builtin_callable
 
-    def __init__(self, filepath):
-        self.filepath = os.path.abspath(os.path.expanduser(filepath))
-        self.filename = os.path.splitext(os.path.basename(self.filepath))[0]
-        self.extension = os.path.splitext(self.filepath)[1]
-        self.folder = os.path.dirname(self.filepath)
+    def __call__(self, asset_name, **kwargs):
+        return self.import_builtin_asset(asset_name, **kwargs)
 
-    def build(self):
-        r"""
-        Performs the heavy lifting for the importer class. This actually reads
-        the file in from disk and does any necessary parsing of the data in to
-        an appropriate format.
+import_builtin_asset = BuiltinAssets(_menpo_import_builtin_asset)
 
-        Returns
-        -------
-        object : object or list
-            An instantiated class of the expected type. For example, for an
-            `.obj` importer, this would be a
-            :class:`menpo.shape.mesh.base.Trimesh`. If multiple objects need
-            to be returned from one importer, a list must be returned.
-        """
-        raise NotImplementedError()
-
-
-# Avoid circular imports
-from menpo.io.input.extensions import (image_landmark_types, image_types,
-                                       pickle_types)
+for asset in menpo_ls_builtin_assets():
+    setattr(import_builtin_asset, asset.replace('.', '_'),
+            partial(_menpo_import_builtin_asset, asset))

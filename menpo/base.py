@@ -1,23 +1,8 @@
+import collections
+from itertools import chain
+from functools import partial, wraps
 import os.path
-
-# To debug the Copyable interface, simply uncomment lines 11-23 below and the
-# four lines in the copy() method.
-# Then you can call print_copyable_log() to see exactly what types have been
-# skipped in copying and why.
-
-# from collections import defaultdict
-# alien_copies = defaultdict(set)
-# non_copies = defaultdict(set)
-#
-#
-# def print_copyable_log():
-#     print('Has .copy() but not Copyable:')
-#     for k, v in alien_copies.items():
-#         print('  {:15}|  {}'.format(k, ', '.join(v)))
-#
-#     print('\nNo .copy() (shallow copied):')
-#     for k, v in non_copies.items():
-#         print('  {:15}|  {}'.format(k, ', '.join(v)))
+import warnings
 
 
 class Copyable(object):
@@ -41,21 +26,15 @@ class Copyable(object):
 
         Returns
         -------
-
         ``type(self)``
             A copy of this object
-
         """
-        # print('copy called on {}'.format(type(self).__name__))
         new = self.__class__.__new__(self.__class__)
         for k, v in self.__dict__.items():
             try:
                 new.__dict__[k] = v.copy()
-                # if not isinstance(v, Copyable):
-                #     alien_copies[type(v).__name__].add(type(self).__name__)
             except AttributeError:
                 new.__dict__[k] = v
-                # non_copies[type(v).__name__].add(type(self).__name__)
         return new
 
 
@@ -108,6 +87,23 @@ class Vectorizable(Copyable):
 
     def from_vector_inplace(self, vector):
         """
+        Deprecated. Use the non-mutating API, :map:`from_vector`.
+
+        For internal usage in performance-sensitive spots,
+        see `_from_vector_inplace()`
+
+        Parameters
+        ----------
+        vector : ``(n_parameters,)`` `ndarray`
+            Flattened representation of this object
+        """
+        warnings.warn('the public API for inplace operations is deprecated '
+                      'and will be removed in a future version of Menpo. '
+                      'Use .from_vector() instead.', MenpoDeprecationWarning)
+        return self._from_vector_inplace(vector)
+
+    def _from_vector_inplace(self, vector):
+        """
         Update the state of this object from a vector form.
 
         Parameters
@@ -138,7 +134,7 @@ class Vectorizable(Copyable):
             An new instance of this class.
         """
         new = self.copy()
-        new.from_vector_inplace(vector)
+        new._from_vector_inplace(vector)
         return new
 
     def has_nan_values(self):
@@ -317,3 +313,370 @@ class MenpoDeprecationWarning(Warning):
     release.
     """
     pass
+
+
+class MenpoMissingDependencyError(Exception):
+    r"""
+    An exception that a dependency required for the requested functionality
+    was not detected.
+    """
+    def __init__(self, package_name):
+        super(MenpoMissingDependencyError, self).__init__()
+        self.message = "You need to install the '{pname}' package in order " \
+                       "to use this functionality. We recommend that you " \
+                       "use conda to achieve this - try the command " \
+                       "'conda install -c menpo {pname}' " \
+                       "in your terminal.".format(pname=package_name)
+
+    def __str__(self):
+        return self.message
+
+
+def name_of_callable(c):
+    r"""
+    Return the name of a callable (function or callable class) as a string.
+    Recurses on partial function to attempt to find the wrapped
+    methods actual name.
+
+    Parameters
+    ----------
+    c : `callable`
+        A callable class or function, or any valid Python object that can
+        be wrapped with partial.
+
+    Returns
+    -------
+    name : `str`
+        The name of the passed object.
+    """
+    try:
+        if isinstance(c, partial):  # partial
+            # Recursively call as partial may be wrapping either a callable
+            # or a function (or another partial for some reason!)
+            return name_of_callable(c.func)
+        else:
+            return c.__name__  # function
+    except AttributeError:
+        return c.__class__.__name__  # callable class
+
+
+class doc_inherit(object):
+    """
+    Docstring inheriting method descriptor.
+
+    This uses some Python magic in order to create a decorator that implements
+    the descriptor protocol that allows functions to inherit documentation.
+    This is particularly useful for methods that directly override methods
+    on their base class and simply alter the implementation but not the
+    effective behaviour. Usage of this decorator is as follows:
+
+        @doc_inherit()
+        def foo():
+            # Do something, but inherit the documentation from the method
+            # called 'foo' found on the super() chain.
+
+        @doc_inherit(name="foo2")
+        def foo():
+            # Do something, but inherit the documentation from the method
+            # called 'foo2' found on the super() chain.
+
+    When no argument is passed the name of the method being decorated is
+    looked up on the ``super`` call chain.
+
+    Parameters
+    ----------
+    name : `str`
+        The name of the method to copy documentation from that exists somewhere
+        on the ``super`` inheritance hierarchy.
+    """
+
+    def __init__(self, name=None):
+        self.name = name
+
+    def __call__(self, mthd):
+        # Implementing the call method on a decorator allows the decorator
+        # to recieve arguments in the constructor (__init__). Therefore,
+        # the argument to the call method is always the method being wrapped.
+        self.mthd = mthd
+        # If name is None then default to the name of the method being wrapped.
+        if self.name is None:
+            self.name = self.mthd.__name__
+        return self
+
+    def __get__(self, obj, cls):
+        # Implement the descriptor protocol. There are two different calling
+        # strategies that involve whether the wrapped method has been passed
+        # an instance or not.
+        if obj:
+            return self._get_with_instance(obj, cls)
+        else:
+            return self._get_with_no_instance(cls)
+
+    def _get_with_instance(self, obj, cls):
+        # An instance was passed, so lookup the name on the super chain
+        overridden = getattr(super(cls, obj), self.name, None)
+
+        # Return the wrapped method, passing through the arguments and the
+        # object instance.
+        @wraps(self.mthd, assigned=('__name__', '__module__'))
+        def f(*args, **kwargs):
+            return self.mthd(obj, *args, **kwargs)
+
+        return self._use_parent_doc(f, overridden)
+
+    def _get_with_no_instance(self, cls):
+
+        # This case is more complicated (than when an instance is passed). Here
+        # we use reflection to try and lookup the method. When found, we drop
+        # out the loop.
+        for parent in cls.__mro__[1:]:
+            overridden = getattr(parent, self.name, None)
+            if overridden:
+                break
+
+        # Return the wrapped method, passing through the arguments and the
+        # object instance.
+        @wraps(self.mthd, assigned=('__name__', '__module__'))
+        def f(*args, **kwargs):
+            return self.mthd(*args, **kwargs)
+
+        return self._use_parent_doc(f, overridden)
+
+    def _use_parent_doc(self, func, source):
+        # Attach the documentation (unless the method was not found on the
+        # super chain).
+        if source is None:
+            raise NameError("Can't find '{}' in parents".format(self.name))
+        func.__doc__ = source.__doc__
+        return func
+
+
+class LazyList(collections.Sequence, Copyable):
+    r"""
+    An immutable sequence that provides the ability to lazily access objects.
+    In truth, this sequence simply wraps a list of callables which are then
+    indexed and invoked. However, if the callable represents a function that
+    lazily access memory, then this list simply implements a lazy list
+    paradigm.
+
+    When slicing, another `LazyList` is returned, containing the subset
+    of callables.
+
+    Parameters
+    ----------
+    callables : list of `callable`
+        A list of `callable` objects that will be invoked if directly indexed.
+    """
+
+    def __init__(self, callables):
+        self._callables = callables
+
+    def __getitem__(self, slice_):
+        if isinstance(slice_, int) or hasattr(slice_, '__index__'):
+            # PEP 357 and single integer index access - returns element
+            return self._callables[slice_]()
+        elif isinstance(slice_, collections.Iterable):
+            # An iterable object is passed - return a new LazyList
+            return LazyList([self._callables[s] for s in slice_])
+        else:
+            # A slice or unknown type is passed - let List handle it
+            return LazyList(self._callables[slice_])
+
+    def __len__(self):
+        return len(self._callables)
+
+    @classmethod
+    def init_from_iterable(cls, iterable, f=None):
+        r"""
+        Create a lazy list from an existing iterable (think Python `list`) and
+        optionally a `callable` that expects a single parameter which will be
+        applied to each element of the list. This allows for simply
+        creating a `LazyList` from an existing list and if no `callable` is
+        provided the identity function is assumed.
+
+        Parameters
+        ----------
+        iterable : `collections.Iterable`
+            An iterable object such as a `list`.
+        f : `callable`, optional
+            Callable expecting a single parameter.
+
+        Returns
+        -------
+        lazy : `LazyList`
+            A LazyList where each element returns each item of the provided
+            iterable, optionally with `f` applied to it.
+        """
+        if f is None:
+            # The identity function
+            def f(i):
+                return i
+        return cls([partial(f, x) for x in iterable])
+
+    @classmethod
+    def init_from_index_callable(cls, f, n_elements):
+        r"""
+        Create a lazy list from a `callable` that expects a single parameter,
+        the index into an underlying sequence. This allows for simply
+        creating a `LazyList` from a `callable` that likely wraps
+        another list in a closure.
+
+        Parameters
+        ----------
+        f : `callable`
+            Callable expecting a single integer parameter, index. This is an
+            index into (presumably) an underlying sequence.
+        n_elements : `int`
+            The number of elements in the underlying sequence.
+
+        Returns
+        -------
+        lazy : `LazyList`
+            A LazyList where each element returns the underlying indexable
+            object wrapped by ``f``.
+        """
+        return cls([partial(f, i) for i in range(n_elements)])
+
+    def map(self, f):
+        r"""
+        Create a new LazyList where the passed callable ``f`` wraps
+        each element.
+
+        ``f`` should take a single parameter, ``x``, that is the result
+        of the underlying callable -  it must also return a value. Note that
+        mapping is lazy and thus calling this function should return
+        immediately.
+
+        Alternatively, ``f`` may be a list of `callable`, one per entry
+        in the underlying list, with the same specification as above.
+
+        Parameters
+        ----------
+        f : `callable` or `iterable` of `callable`
+            Callable to wrap each element with. If an iterable of callables
+            (think list) is passed then it **must** by the same length as
+            this LazyList.
+
+        Returns
+        -------
+        lazy : `LazyList`
+            A new LazyList where each element is wrapped by (each) ``f``.
+        """
+        # We need this delayed helper function in order to ensure that f
+        # is passed the actual instantiated object and not the callable itself.
+        def delayed(delay_f, delay_x):
+            return delay_f(delay_x())
+
+        if isinstance(f, collections.Iterable) and callable(f):
+            raise ValueError('It is ambiguous whether the provided argument '
+                             'is an iterable object or a callable.')
+
+        new = self.copy()
+        if isinstance(f, collections.Iterable):
+            if len(f) != len(new):
+                raise ValueError('A callable per element of the LazyList must '
+                                 'be passed.')
+            new._callables = [partial(delayed, one_f, x)
+                              for one_f, x in zip(f, new._callables)]
+        else:
+            new._callables = [partial(delayed, f, x) for x in new._callables]
+        return new
+
+    def repeat(self, n):
+        r"""
+        Repeat each item of the underlying LazyList ``n`` times. Therefore,
+        if a list currently has ``D`` items, the returned list will contain
+        ``D * n`` items and will return immediately (method is lazy).
+
+        Parameters
+        ----------
+        n : `int`
+            The number of times to repeat each item.
+
+        Returns
+        -------
+        lazy : `LazyList`
+            A LazyList where each element returns each item of the provided
+            iterable, optionally with `f` applied to it.
+
+        Examples
+        --------
+        >>> from menpo.base import LazyList
+        >>> ll = LazyList.init_from_list([0, 1])
+        >>> repeated_ll = ll.repeat(2)  # Returns immediately
+        >>> items = list(repeated_ll)   # [0, 0, 1, 1]
+        """
+        new = self.copy()
+        new._callables = list(chain(*zip(*[new._callables] * n)))
+        return new
+
+    def copy(self):
+        r"""
+        Generate an efficient copy of this LazyList - copying the underlying
+        callables will be lazy and shallow (each callable will **not** be
+        called nor copied) but they will reside within in a new `list`.
+
+        Returns
+        -------
+        ``type(self)``
+            A copy of this LazyList.
+        """
+        new = Copyable.copy(self)
+        new._callables = list(self._callables)
+        return new
+
+    def __add__(self, other):
+        r"""
+        Create a new LazyList from this list and the given list. The passed list
+        items will be concatenated to the end of this list to give a new
+        LazyList that contains the concatenation of the two lists.
+
+        If a Python list is passed then the elements are wrapped in a function
+        that just returns their values to maintain the callable nature of
+        LazyList elements.
+
+        Parameters
+        ----------
+        other : `collections.Sequence`
+            Sequence to concatenate with this list.
+
+        Returns
+        -------
+        lazy : `LazyList`
+            A new LazyList formed of the concatenation of this list and
+            the ``other`` list.
+        """
+        new = self.copy()
+        # If the passed Sequence was not lazy then fake it being lazy by
+        # wrapping it in a function that just returns the value.
+        if not isinstance(other, LazyList):
+            new_callables = LazyList.init_from_iterable(other)._callables
+        else:
+            new_callables = other._callables
+        new._callables = new._callables + new_callables
+        return new
+
+
+def partial_doc(func, *args, **kwargs):
+    r"""
+    Return a partial function but the __doc__ attached to the returned
+    partial. Note that no effort is made to correct the docstring for
+    any parameters that are covered by the partial.
+
+    Parameters
+    ----------
+    func : `callable`
+        The func to partial and whose docs should be copied.
+    args : ...
+        Any arguments to partial.
+    kwargs : `dict`
+        Any keyword arguments to partial.
+
+    Returns
+    -------
+    p_func : `callable`
+        The partially wrapped func with __doc__ attached.
+    """
+    p = partial(func, *args, **kwargs)
+    p.__doc__ = func.__doc__
+    return p

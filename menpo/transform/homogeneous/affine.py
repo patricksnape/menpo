@@ -109,9 +109,12 @@ class Affine(Homogeneous):
         Returns
         -------
         transforms : `list` of :map:`DiscreteAffine`
-            Equivalent to this affine transform, such that::
+            Equivalent to this affine transform, such that
 
-                reduce(lambda x,y: x.chain(y), self.decompose()) == self
+            .. code-block:: python
+
+                reduce(lambda x, y: x.chain(y), self.decompose()) == self
+
         """
         from .rotation import Rotation
         from .translation import Translation
@@ -168,11 +171,13 @@ class Affine(Homogeneous):
             [p1, p3, p5]
             [p2, p4, p6]
 
+
         3D Affine: 12 parameters::
 
             [p1, p4, p7, p10]
             [p2, p5, p8, p11]
             [p3, p6, p9, p12]
+
         """
         return self.n_dims * (self.n_dims + 1)
 
@@ -206,7 +211,7 @@ class Affine(Homogeneous):
         params = self.h_matrix - np.eye(self.n_dims + 1)
         return params[:self.n_dims, :].ravel(order='F')
 
-    def from_vector_inplace(self, p):
+    def _from_vector_inplace(self, p):
         r"""
         Updates this Affine in-place from the new parameters. See
         from_vector for details of the parameter format
@@ -221,7 +226,7 @@ class Affine(Homogeneous):
         else:
             ValueError("Only 2D (6 parameters) or 3D (12 parameters) "
                        "homogeneous matrices are supported.")
-        self.set_h_matrix(h_matrix, copy=False, skip_checks=True)
+        self._set_h_matrix(h_matrix, copy=False, skip_checks=True)
 
     @property
     def composes_inplace_with(self):
@@ -284,7 +289,7 @@ class AlignmentAffine(HomogFamilyAlignment, Affine):
         b = target.h_points()
         return np.linalg.solve(np.dot(a, a.T), np.dot(a, b.T)).T
 
-    def set_h_matrix(self, value, copy=True, skip_checks=False):
+    def _set_h_matrix(self, value, copy=True, skip_checks=False):
         r"""
         Updates ``h_matrix``, optionally performing sanity checks.
 
@@ -313,7 +318,7 @@ class AlignmentAffine(HomogFamilyAlignment, Affine):
         NotImplementedError
             If :attr:`h_matrix_is_mutable` returns ``False``.
         """
-        Affine.set_h_matrix(self, value, copy=copy, skip_checks=skip_checks)
+        Affine._set_h_matrix(self, value, copy=copy, skip_checks=skip_checks)
         # now update the state
         self._sync_target_from_state()
 
@@ -321,7 +326,7 @@ class AlignmentAffine(HomogFamilyAlignment, Affine):
         optimal_h = self._build_alignment_h_matrix(self.source, self.target)
         # Use the pure Affine setter (so we don't get syncing)
         # We know the resulting affine is correct so skip the checks
-        Affine.set_h_matrix(self, optimal_h, copy=False, skip_checks=True)
+        Affine._set_h_matrix(self, optimal_h, copy=False, skip_checks=True)
 
     def as_non_alignment(self):
         r"""

@@ -1,9 +1,10 @@
 from __future__ import division
 import itertools
+import warnings
 import numpy as np
 scipy_gaussian_filter = None  # expensive
 
-from .base import ndfeature, winitfeature
+from .base import ndfeature, winitfeature, imgfeature
 from .gradient import gradient_cython
 from .windowiterator import WindowIterator, WindowIteratorResult
 
@@ -50,7 +51,7 @@ def gradient(pixels):
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(C, X, Y, ...)`` `ndarray`
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
         Either the image object itself or an array where the first dimension
         is interpreted as channels. This means an N-dimensional image is
         represented by an N+1 dimensional array.
@@ -80,8 +81,8 @@ def gaussian_filter(pixels, sigma):
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
-        Either the image object itself or an array with the pixels. The last
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
         dimension is interpreted as channels. This means an N-dimensional image
         is represented by an N+1 dimensional array.
     sigma : `float` or `list` of `float`
@@ -97,13 +98,12 @@ def gaussian_filter(pixels, sigma):
     global scipy_gaussian_filter
     if scipy_gaussian_filter is None:
         from scipy.ndimage import gaussian_filter as scipy_gaussian_filter
-    output = np.empty(pixels.shape)
+    output = np.empty(pixels.shape, dtype=pixels.dtype)
     for dim in range(pixels.shape[0]):
         scipy_gaussian_filter(pixels[dim], sigma, output=output[dim])
     return output
 
 
-# TODO: Needs fixing ...
 @winitfeature
 def hog(pixels, mode='dense', algorithm='dalaltriggs', num_bins=9,
         cell_size=8, block_size=2, signed_gradient=True, l2_norm_clip=0.2,
@@ -116,8 +116,8 @@ def hog(pixels, mode='dense', algorithm='dalaltriggs', num_bins=9,
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
-        Either the image object itself or an array with the pixels. The last
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
         dimension is interpreted as channels. This means an N-dimensional image
         is represented by an N+1 dimensional array.
     mode : {``dense``, ``sparse``}, optional
@@ -384,7 +384,8 @@ def igo(pixels, double_angles=False, verbose=False):
     grad_orient = np.angle(grad[:n_img_chnls] + 1j * grad[n_img_chnls:])
     # compute igo image
     igo_pixels = np.empty((n_img_chnls * feat_chnls,
-                           pixels.shape[1], pixels.shape[2]))
+                           pixels.shape[1], pixels.shape[2]),
+                          dtype=pixels.dtype)
 
     if double_angles:
         dbl_grad_orient = 2 * grad_orient
@@ -421,7 +422,7 @@ def es(pixels, verbose=False):
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(C, X, Y, ...)`` `ndarray`
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
         Either an image object itself or an array where the first axis
         represents the number of channels. This means an N-dimensional image
         is represented by an N+1 dimensional array.
@@ -459,7 +460,8 @@ def es(pixels, verbose=False):
     # compute es image
     grad_abs = grad_abs + np.median(grad_abs)
     es_pixels = np.empty((pixels.shape[0] * feat_channels,
-                          pixels.shape[1], pixels.shape[2]))
+                          pixels.shape[1], pixels.shape[2]),
+                         dtype=pixels.dtype)
 
     es_pixels[:n_img_chnls] = grad[:n_img_chnls] / grad_abs
     es_pixels[n_img_chnls:] = grad[n_img_chnls:] / grad_abs
@@ -486,8 +488,8 @@ def daisy(pixels, step=1, radius=15, rings=2, histograms=2, orientations=8,
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
-        Either the image object itself or an array with the pixels. The last
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
         dimension is interpreted as channels. This means an N-dimensional image
         is represented by an N+1 dimensional array.
     step : `int`, optional
@@ -608,8 +610,8 @@ def lbp(pixels, radius=None, samples=None, mapping_type='riu2',
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
-        Either the image object itself or an array with the pixels. The last
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
         dimension is interpreted as channels. This means an N-dimensional image
         is represented by an N+1 dimensional array.
     radius : `int` or `list` of `int` or ``None``, optional
@@ -766,6 +768,197 @@ def lbp(pixels, radius=None, samples=None, mapping_type='riu2',
     return lbp_descriptor
 
 
+@imgfeature
+def normalize(img, scale_func=None, mode='all',
+              error_on_divide_by_zero=True):
+    r"""
+    Normalize the pixel values via mean centering and an optional scaling. By
+    default the scaling will be ``1.0``. The ``mode`` parameter selects
+    whether the normalisation is computed across all pixels in the image or
+    per-channel.
+
+    Parameters
+    ----------
+    img : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
+        dimension is interpreted as channels. This means an N-dimensional image
+        is represented by an N+1 dimensional array.
+    scale_func : `callable`, optional
+        Compute the scaling factor. Expects a single parameter and an optional
+        `axis` keyword argument and will be passed the entire pixel array.
+        Should return a 1D numpy array of one or more values.
+    mode : ``{all, per_channel}``, optional
+        If ``all``, the normalization is over all channels. If
+        ``per_channel``, each channel individually is mean centred and
+        normalized in variance.
+    error_on_divide_by_zero : `bool`, optional
+        If ``True``, will raise a ``ValueError`` on dividing by zero.
+        If ``False``, will merely raise a warning and only those values
+        with non-zero denominators will be normalized.
+
+    Returns
+    -------
+    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
+        A normalized copy of the image that was passed in.
+
+    Raises
+    ------
+    ValueError
+        If any of the denominators are 0 and ``error_on_divide_by_zero`` is
+        ``True``.
+    """
+    if scale_func is None:
+        def scale_func(_, axis=None):
+            return np.array([1.0])
+
+    pixels = img.as_vector(keep_channels=True)
+
+    if mode == 'all':
+        centered_pixels = pixels - np.mean(pixels)
+        scale_factor = scale_func(centered_pixels)
+    elif mode == 'per_channel':
+        centered_pixels = pixels - np.mean(pixels, axis=1, keepdims=1)
+        scale_factor = scale_func(centered_pixels, axis=1).reshape([-1, 1])
+    else:
+        raise ValueError("Supported modes are {{'all', 'per_channel'}} - '{}' "
+                         "is not known".format(mode))
+
+    zero_denom = (scale_factor == 0).ravel()
+    any_non_zero = np.any(zero_denom)
+    if error_on_divide_by_zero and any_non_zero:
+        raise ValueError("Computed scale factor cannot be 0.0")
+    elif any_non_zero:
+        warnings.warn('One or more the scale factors are 0.0 and thus these'
+                      'entries will be skipped during normalization.')
+        non_zero_denom = ~zero_denom
+        centered_pixels[non_zero_denom] = (centered_pixels[non_zero_denom] /
+                                           scale_factor[non_zero_denom])
+        return img.from_vector(centered_pixels)
+    else:
+        return img.from_vector(centered_pixels / scale_factor)
+
+
+@ndfeature
+def normalize_norm(pixels, mode='all', error_on_divide_by_zero=True):
+    r"""
+    Normalize the pixels to be mean centred and have unit norm. The ``mode``
+    parameter selects whether the normalisation is computed across all pixels in
+    the image or per-channel.
+
+    Parameters
+    ----------
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
+        dimension is interpreted as channels. This means an N-dimensional image
+        is represented by an N+1 dimensional array.
+    mode : ``{all, per_channel}``, optional
+        If ``all``, the normalization is over all channels. If
+        ``per_channel``, each channel individually is mean centred and
+        normalized in variance.
+    error_on_divide_by_zero : `bool`, optional
+        If ``True``, will raise a ``ValueError`` on dividing by zero.
+        If ``False``, will merely raise a warning and only those values
+        with non-zero denominators will be normalized.
+
+    Returns
+    -------
+    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
+        A normalized copy of the image that was passed in.
+
+    Raises
+    ------
+    ValueError
+        If any of the denominators are 0 and ``error_on_divide_by_zero`` is
+        ``True``.
+    """
+    def unit_norm(x, axis=None):
+        return np.linalg.norm(x, axis=axis)
+
+    return normalize(pixels, scale_func=unit_norm, mode=mode,
+                     error_on_divide_by_zero=error_on_divide_by_zero)
+
+
+@ndfeature
+def normalize_std(pixels, mode='all', error_on_divide_by_zero=True):
+    r"""
+    Normalize the pixels to be mean centred and have unit standard deviation.
+    The ``mode`` parameter selects whether the normalisation is computed across
+    all pixels in the image or per-channel.
+
+    Parameters
+    ----------
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
+        dimension is interpreted as channels. This means an N-dimensional image
+        is represented by an N+1 dimensional array.
+    mode : ``{all, per_channel}``, optional
+        If ``all``, the normalization is over all channels. If
+        ``per_channel``, each channel individually is mean centred and
+        normalized in variance.
+    error_on_divide_by_zero : `bool`, optional
+        If ``True``, will raise a ``ValueError`` on dividing by zero.
+        If ``False``, will merely raise a warning and only those values
+        with non-zero denominators will be normalized.
+
+    Returns
+    -------
+    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
+        A normalized copy of the image that was passed in.
+
+    Raises
+    ------
+    ValueError
+        If any of the denominators are 0 and ``error_on_divide_by_zero`` is
+        ``True``.
+    """
+    def unit_std(x, axis=None):
+        return np.std(x, axis=axis)
+
+    return normalize(pixels, scale_func=unit_std, mode=mode,
+                     error_on_divide_by_zero=error_on_divide_by_zero)
+
+
+@ndfeature
+def normalize_var(pixels, mode='all', error_on_divide_by_zero=True):
+    r"""
+    Normalize the pixels to be mean centred and normalize according
+    to the variance.
+    The ``mode`` parameter selects whether the normalisation is computed across
+    all pixels in the image or per-channel.
+
+    Parameters
+    ----------
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
+        dimension is interpreted as channels. This means an N-dimensional image
+        is represented by an N+1 dimensional array.
+    mode : ``{all, per_channel}``, optional
+        If ``all``, the normalization is over all channels. If
+        ``per_channel``, each channel individually is mean centred and
+        normalized in variance.
+    error_on_divide_by_zero : `bool`, optional
+        If ``True``, will raise a ``ValueError`` on dividing by zero.
+        If ``False``, will merely raise a warning and only those values
+        with non-zero denominators will be normalized.
+
+    Returns
+    -------
+    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
+        A normalized copy of the image that was passed in.
+
+    Raises
+    ------
+    ValueError
+        If any of the denominators are 0 and ``error_on_divide_by_zero`` is
+        ``True``.
+    """
+    def unit_var(x, axis=None):
+        return np.var(x, axis=axis)
+
+    return normalize(pixels, scale_func=unit_var, mode=mode,
+                     error_on_divide_by_zero=error_on_divide_by_zero)
+
+
 @ndfeature
 def no_op(pixels):
     r"""
@@ -774,8 +967,8 @@ def no_op(pixels):
 
     Parameters
     ----------
-    pixels : :map:`Image` or subclass or ``(X, Y, ..., Z, C)`` `ndarray`
-        Either the image object itself or an array with the pixels. The last
+    pixels : :map:`Image` or subclass or ``(C, X, Y, ..., Z)`` `ndarray`
+        Either the image object itself or an array with the pixels. The first
         dimension is interpreted as channels. This means an N-dimensional image
         is represented by an N+1 dimensional array.
 
@@ -814,6 +1007,6 @@ def features_selection_widget():
         image = mio.import_builtin_asset.lenna_png()
         features_image = features_fun[0](image)
     """
-    from menpo.visualize.widgets import features_selection
+    from menpowidgets import features_selection
 
     return features_selection()

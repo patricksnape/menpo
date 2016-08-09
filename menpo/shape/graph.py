@@ -876,7 +876,7 @@ class UndirectedGraph(Graph):
         # Get directed tree from the above undirected graph using DFS.
         mst_adjacency = csgraph.depth_first_tree(mst_adjacency, root_vertex,
                                                  directed=False)
-        return Tree(mst_adjacency, root_vertex)
+        return Tree(mst_adjacency, root_vertex, skip_checks=True)
 
     def __str__(self):
         isolated = ''
@@ -1194,6 +1194,58 @@ class Tree(DirectedGraph):
         self.root_vertex = root_vertex
         self.predecessors_list = self._get_predecessors_list()
 
+    @classmethod
+    def init_from_edges(cls, edges, n_vertices, root_vertex, copy=True,
+                        skip_checks=False):
+        r"""
+        Construct a :map:`Tree` from edges array.
+
+        Parameters
+        ----------
+        edges : ``(n_edges, 2, )`` `ndarray`
+            The `ndarray` of edges, i.e. all the pairs of vertices that are
+            connected with an edge.
+        n_vertices : `int`
+            The total number of vertices, assuming that the numbering of
+            vertices starts from ``0``. ``edges`` and ``n_vertices`` can be
+            defined in a way to set isolated vertices.
+        root_vertex : `int`
+            That vertex that will be set as root.
+        copy : `bool`, optional
+            If ``False``, the ``adjacency_matrix`` will not be copied on
+            assignment.
+        skip_checks : `bool`, optional
+            If ``True``, no checks will be performed.
+
+        Examples
+        --------
+        The following tree ::
+
+                   0
+                   |
+                ___|___
+               1       2
+               |       |
+              _|_      |
+             3   4     5
+             |   |     |
+             |   |     |
+             6   7     8
+
+        can be defined as ::
+
+            from menpo.shape import PointTree
+            import numpy as np
+            points = np.array([[30, 30], [10, 20], [50, 20], [0, 10], [20, 10],
+                               [50, 10], [0, 0], [20, 0], [50, 0]])
+            edges = np.array([[0, 1], [0, 2], [1, 3], [1, 4], [2, 5], [3, 6],
+                              [4, 7], [5, 8]])
+            tree = PointTree.init_from_edges(points, edges, root_vertex=0)
+        """
+        adjacency_matrix = _convert_edges_to_adjacency_matrix(edges, n_vertices)
+        return cls(adjacency_matrix, root_vertex=root_vertex, copy=copy,
+                   skip_checks=skip_checks)
+
     def _get_predecessors_list(self):
         r"""
         Returns the predecessors list of the tree, i.e. a `list` of length
@@ -1381,15 +1433,12 @@ class PointGraph(Graph, PointCloud):
     ----------
     points : ``(n_vertices, n_dims, )`` `ndarray`
         The array of point locations.
-    adjacency_matrix : ``(n_vertices, n_vertices, )`` `ndarray` or `csr_matrix`
+    adjacency_matrix : ``(n_vertices, n_vertices)`` `ndarray` or `csr_matrix`
         The adjacency matrix of the graph in which the rows represent source
         vertices and columns represent destination vertices. The non-edges must
         be represented with zeros and the edges can have a weight value.
 
         The adjacency matrix of an undirected graph must be symmetric.
-    directed : `bool`
-        If ``True``, the graph is considered directed. If ``False``, the graph
-        is considered undirected.
     copy : `bool`, optional
         If ``False``, the ``adjacency_matrix`` will not be copied on assignment.
     skip_checks : `bool`, optional
@@ -1611,6 +1660,113 @@ class PointGraph(Graph, PointCloud):
                                                               points.shape[0])
         return cls(points, adjacency_matrix, copy=copy, skip_checks=skip_checks)
 
+    @classmethod
+    def init_2d_grid(cls, shape, spacing=None, adjacency_matrix=None,
+                     skip_checks=False):
+        r"""
+        Create a PointGraph that exists on a regular 2D grid. The first
+        dimension is the number of rows in the grid and the second dimension
+        of the shape is the number of columns. ``spacing`` optionally allows
+        the definition of the distance between points (uniform over points).
+        The spacing may be different for rows and columns.
+
+        If no adjacency matrix is provided, the default connectivity will
+        be a 4-connected lattice.
+
+        Parameters
+        ----------
+        shape : `tuple` of 2 `int`
+            The size of the grid to create, this defines the number of points
+            across each dimension in the grid. The first element is the number
+            of rows and the second is the number of columns.
+        spacing : `int` or `tuple` of 2 `int`, optional
+            The spacing between points. If a single `int` is provided, this
+            is applied uniformly across each dimension. If a `tuple` is
+            provided, the spacing is applied non-uniformly as defined e.g.
+            ``(2, 3)`` gives a spacing of 2 for the rows and 3 for the
+            columns.
+        adjacency_matrix : ``(n_vertices, n_vertices)`` `ndarray` or `csr_matrix`, optional
+            The adjacency matrix of the graph in which the rows represent source
+            vertices and columns represent destination vertices. The non-edges must
+            be represented with zeros and the edges can have a weight value.
+
+            The adjacency matrix of an undirected graph must be symmetric.
+        skip_checks : `bool`, optional
+            If ``True``, no checks will be performed. Only considered if no
+            adjacency matrix is provided.
+
+        Returns
+        -------
+        pgraph : PointGraph
+            A pointgraph arranged in a grid.
+        """
+        from .graph_predefined import stencil_grid
+        pc = PointCloud.init_2d_grid(shape, spacing=spacing)
+        points = pc.points
+        if adjacency_matrix is None:
+            stencil = np.array([[0, 1, 0],
+                                [1, 0, 1],
+                                [0, 1, 0]])
+            adjacency_matrix = stencil_grid(stencil, shape, format='csr')
+            # Skip checks if we construct the adjacency.
+            skip_checks = True
+        else:
+            adjacency_matrix = adjacency_matrix.copy()
+        return cls(points, adjacency_matrix, copy=False,
+                   skip_checks=skip_checks)
+
+    @classmethod
+    def init_from_depth_image(cls, depth_image, spacing=None,
+                              adjacency_matrix=None, skip_checks=False):
+        r"""
+        Return a 3D point graph from the given depth image. The depth image
+        is assumed to represent height/depth values and the XY coordinates
+        are assumed to unit spaced and represent image coordinates. This is
+        particularly useful for visualising depth values that have been
+        recovered from images.
+
+        If no adjacency matrix is provided, the default connectivity will
+        be a 4-connected lattice.
+
+        Parameters
+        ----------
+        depth_image : :map:`Image` or subclass
+            A single channel image that contains depth values - as commonly
+            returned by RGBD cameras, for example.
+        spacing : `int` or `tuple` of 2 `int`, optional
+            The spacing between points. If a single `int` is provided, this
+            is applied uniformly across each dimension. If a `tuple` is
+            provided, the spacing is applied non-uniformly as defined e.g.
+            ``(2, 3)`` gives a spacing of 2 for the rows and 3 for the
+            columns.
+        adjacency_matrix : ``(n_vertices, n_vertices)`` `ndarray` or `csr_matrix`, optional
+            The adjacency matrix of the graph in which the rows represent source
+            vertices and columns represent destination vertices. The non-edges must
+            be represented with zeros and the edges can have a weight value.
+
+            The adjacency matrix of an undirected graph must be symmetric.
+        skip_checks : `bool`, optional
+            If ``True``, no checks will be performed. Only considered if no
+            adjacency matrix is provided.
+
+        Returns
+        -------
+        depth_cloud : ``type(cls)``
+            A new 3D PointGraph with unit XY coordinates and the given depth
+            values as Z coordinates.
+        """
+        from menpo.image import MaskedImage
+
+        new_pcloud = cls.init_2d_grid(
+            depth_image.shape, spacing=spacing,
+            adjacency_matrix=adjacency_matrix, skip_checks=skip_checks)
+        if isinstance(depth_image, MaskedImage):
+            new_pcloud = new_pcloud.from_mask(depth_image.mask.as_vector())
+        return cls(np.hstack([new_pcloud.points,
+                              depth_image.as_vector(keep_channels=True).T]),
+                   new_pcloud.adjacency_matrix,
+                   copy=False, skip_checks=True)
+
     def tojson(self):
         r"""
         Convert this PointGraph to a dictionary representation suitable for
@@ -1628,13 +1784,18 @@ class PointGraph(Graph, PointCloud):
     def _view_2d(self, figure_id=None, new_figure=False, image_view=True,
                  render_lines=True, line_colour='r',
                  line_style='-', line_width=1.,
-                 render_markers=True, marker_style='o', marker_size=20,
+                 render_markers=True, marker_style='o', marker_size=5,
                  marker_face_colour='k', marker_edge_colour='k',
-                 marker_edge_width=1., render_axes=True,
+                 marker_edge_width=1., render_numbering=False,
+                 numbers_horizontal_align='center',
+                 numbers_vertical_align='bottom',
+                 numbers_font_name='sans-serif', numbers_font_size=10,
+                 numbers_font_style='normal', numbers_font_weight='normal',
+                 numbers_font_colour='k', render_axes=True,
                  axes_font_name='sans-serif', axes_font_size=10,
                  axes_font_style='normal', axes_font_weight='normal',
-                 axes_x_limits=None, axes_y_limits=None, figure_size=(10, 8),
-                 label=None):
+                 axes_x_limits=None, axes_y_limits=None, axes_x_ticks=None,
+                 axes_y_ticks=None, figure_size=(10, 8), label=None):
         r"""
         Visualization of the PointGraph in 2D.
 
@@ -1657,7 +1818,7 @@ class PointGraph(Graph, PointCloud):
                 or
                 (3, ) ndarray
 
-        line_style : ``{-, --, -., :}``, optional
+        line_style : ``{'-', '--', '-.', ':'}``, optional
             The style of the lines.
         line_width : `float`, optional
             The width of the lines.
@@ -1669,7 +1830,7 @@ class PointGraph(Graph, PointCloud):
                 {., ,, o, v, ^, <, >, +, x, D, d, s, p, *, h, H, 1, 2, 3, 4, 8}
 
         marker_size : `int`, optional
-            The size of the markers in points^2.
+            The size of the markers in points.
         marker_face_colour : See Below, optional
             The face (filling) colour of the markers.
             Example options ::
@@ -1688,6 +1849,36 @@ class PointGraph(Graph, PointCloud):
 
         marker_edge_width : `float`, optional
             The width of the markers' edge.
+        render_numbering : `bool`, optional
+            If ``True``, the landmarks will be numbered.
+        numbers_horizontal_align : ``{center, right, left}``, optional
+            The horizontal alignment of the numbers' texts.
+        numbers_vertical_align : ``{center, top, bottom, baseline}``, optional
+            The vertical alignment of the numbers' texts.
+        numbers_font_name : See Below, optional
+            The font of the numbers. Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
+        numbers_font_size : `int`, optional
+            The font size of the numbers.
+        numbers_font_style : ``{normal, italic, oblique}``, optional
+            The font style of the numbers.
+        numbers_font_weight : See Below, optional
+            The font weight of the numbers.
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold, demibold, demi, bold, heavy, extra bold, black}
+
+        numbers_font_colour : See Below, optional
+            The font colour of the numbers.
+            Example options ::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
         render_axes : `bool`, optional
             If ``True``, the axes will be rendered.
         axes_font_name : See Below, optional
@@ -1707,10 +1898,20 @@ class PointGraph(Graph, PointCloud):
                 {ultralight, light, normal, regular, book, medium, roman,
                 semibold, demibold, demi, bold, heavy, extra bold, black}
 
-        axes_x_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the x axis.
+        axes_x_limits : `float` or (`float`, `float`) or ``None``, optional
+            The limits of the x axis. If `float`, then it sets padding on the
+            right and left of the PointGraph as a percentage of the PointGraph's
+            width. If `tuple` or `list`, then it defines the axis limits. If
+            ``None``, then the limits are set automatically.
         axes_y_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the y axis.
+            The limits of the y axis. If `float`, then it sets padding on the
+            top and bottom of the PointGraph as a percentage of the PointGraph's
+            height. If `tuple` or `list`, then it defines the axis limits. If
+            ``None``, then the limits are set automatically.
+        axes_x_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the x axis.
+        axes_y_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the y axis.
         figure_size : (`float`, `float`) `tuple` or ``None``, optional
             The size of the figure in inches.
         label : `str`, optional
@@ -1731,10 +1932,19 @@ class PointGraph(Graph, PointCloud):
             marker_style=marker_style, marker_size=marker_size,
             marker_face_colour=marker_face_colour,
             marker_edge_colour=marker_edge_colour,
-            marker_edge_width=marker_edge_width, render_axes=render_axes,
+            marker_edge_width=marker_edge_width,
+            render_numbering=render_numbering,
+            numbers_horizontal_align=numbers_horizontal_align,
+            numbers_vertical_align=numbers_vertical_align,
+            numbers_font_name=numbers_font_name,
+            numbers_font_size=numbers_font_size,
+            numbers_font_style=numbers_font_style,
+            numbers_font_weight=numbers_font_weight,
+            numbers_font_colour=numbers_font_colour, render_axes=render_axes,
             axes_font_name=axes_font_name, axes_font_size=axes_font_size,
             axes_font_style=axes_font_style, axes_font_weight=axes_font_weight,
             axes_x_limits=axes_x_limits, axes_y_limits=axes_y_limits,
+            axes_x_ticks=axes_x_ticks, axes_y_ticks=axes_y_ticks,
             figure_size=figure_size, label=label)
         return renderer
 
@@ -1759,25 +1969,32 @@ class PointGraph(Graph, PointCloud):
             return PointGraphViewer3d(figure_id, new_figure, self.points,
                                       self.edges).render()
         except ImportError:
-            from menpo.visualize import Menpo3dErrorMessage
-            raise ImportError(Menpo3dErrorMessage)
+            from menpo.visualize import Menpo3dMissingError
+            raise Menpo3dMissingError()
 
-    def view_widget(self, browser_style='buttons', figure_size=(10, 8)):
+    def view_widget(self, browser_style='buttons', figure_size=(10, 8),
+                    style='coloured'):
         r"""
-        Visualization of the PointGraph using the :map:`visualize_pointclouds`
-        widget.
+        Visualization of the PointGraph using an interactive widget.
 
         Parameters
         ----------
-        browser_style : ``{buttons, slider}``, optional
-            It defines whether the selector of the PointGraph objects will have
-            the form of plus/minus buttons or a slider.
+        browser_style : {``'buttons'``, ``'slider'``}, optional
+            It defines whether the selector of the objects will have the form of
+            plus/minus buttons or a slider.
         figure_size : (`int`, `int`) `tuple`, optional
             The initial size of the rendered figure.
+        style : {``'coloured'``, ``'minimal'``}, optional
+            If ``'coloured'``, then the style of the widget will be coloured. If
+            ``minimal``, then the style is simple using black and white colours.
         """
-        from menpo.visualize import visualize_pointclouds
-        visualize_pointclouds(self, figure_size=figure_size,
-                              browser_style=browser_style)
+        try:
+            from menpowidgets import visualize_pointclouds
+            visualize_pointclouds(self, figure_size=figure_size, style=style,
+                                  browser_style=browser_style)
+        except ImportError:
+            from menpo.visualize.base import MenpowidgetsMissingError
+            raise MenpowidgetsMissingError()
 
 
 class PointUndirectedGraph(PointGraph, UndirectedGraph):
@@ -2003,9 +2220,8 @@ class PointUndirectedGraph(PointGraph, UndirectedGraph):
         else:
             # Get new adjacency_matrix and points
             (adjacency_matrix, points) = _mask_adjacency_matrix_and_points(
-                mask, self.adjacency_matrix.todense().copy(),
-                self.points.copy())
-            return PointUndirectedGraph(points, adjacency_matrix, copy=False,
+                mask, self.adjacency_matrix, self.points)
+            return PointUndirectedGraph(points, adjacency_matrix, copy=True,
                                         skip_checks=False)
 
     def minimum_spanning_tree(self, root_vertex):
@@ -2039,7 +2255,8 @@ class PointUndirectedGraph(PointGraph, UndirectedGraph):
         mst_adjacency = csgraph.depth_first_tree(mst_adjacency, root_vertex,
                                                  directed=False)
         # remove isolated vertices from the points
-        return PointTree(self.points, mst_adjacency, root_vertex, copy=True)
+        return PointTree(self.points, mst_adjacency, root_vertex, copy=True,
+                         skip_checks=True)
 
 
 class PointDirectedGraph(PointGraph, DirectedGraph):
@@ -2240,9 +2457,8 @@ class PointDirectedGraph(PointGraph, DirectedGraph):
         else:
             # Get new adjacency_matrix and points
             (adjacency_matrix, points) = _mask_adjacency_matrix_and_points(
-                mask, self.adjacency_matrix.todense().copy(),
-                self.points.copy())
-            return PointDirectedGraph(points, adjacency_matrix, copy=False,
+                mask, self.adjacency_matrix, self.points)
+            return PointDirectedGraph(points, adjacency_matrix, copy=True,
                                       skip_checks=False)
 
 
@@ -2254,7 +2470,7 @@ class PointTree(PointDirectedGraph, Tree):
     ----------
     points : ``(n_vertices, n_dims)`` `ndarray`
         The array representing the points.
-    adjacency_matrix : ``(n_vertices, n_vertices, )`` `ndarray` or `csr_matrix`
+    adjacency_matrix : ``(n_vertices, n_vertices)`` `ndarray` or `csr_matrix`
         The adjacency matrix of the tree in which the rows represent parents
         and columns represent children. The non-edges must be represented with
         zeros and the edges can have a weight value.
@@ -2385,8 +2601,151 @@ class PointTree(PointDirectedGraph, Tree):
         """
         adjacency_matrix = _convert_edges_to_adjacency_matrix(edges,
                                                               points.shape[0])
-        return cls(points, adjacency_matrix, root_vertex=root_vertex,
+        return cls(points, adjacency_matrix, root_vertex,
                    copy=copy, skip_checks=skip_checks)
+
+    @classmethod
+    def init_2d_grid(cls, shape, spacing=None, adjacency_matrix=None,
+                     root_vertex=None, skip_checks=False):
+        r"""
+        Create a pointtree that exists on a regular 2D grid. The first
+        dimension is the number of rows in the grid and the second dimension
+        of the shape is the number of columns. ``spacing`` optionally allows
+        the definition of the distance between points (uniform over points).
+        The spacing may be different for rows and columns.
+
+        The default connectivity is the minimum spanning tree formed from
+        a triangulation of the grid. The default root will be the centre
+        of the grid.
+
+        Parameters
+        ----------
+        shape : `tuple` of 2 `int`
+            The size of the grid to create, this defines the number of points
+            across each dimension in the grid. The first element is the number
+            of rows and the second is the number of columns.
+        spacing : `int` or `tuple` of 2 `int`, optional
+            The spacing between points. If a single `int` is provided, this
+            is applied uniformly across each dimension. If a `tuple` is
+            provided, the spacing is applied non-uniformly as defined e.g.
+            ``(2, 3)`` gives a spacing of 2 for the rows and 3 for the
+            columns.
+        adjacency_matrix : ``(n_vertices, n_vertices)`` `ndarray` or `csr_matrix`, optional
+            The adjacency matrix of the tree in which the rows represent parents
+            and columns represent children. The non-edges must be represented with
+            zeros and the edges can have a weight value.
+
+            :Note: A tree must not have isolated vertices.
+        root_vertex : `int`
+            The vertex to be set as root.
+        skip_checks : `bool`, optional
+            If ``True``, no checks will be performed. Only considered if an
+            adjacency matrix is provided.
+
+        Returns
+        -------
+        shape_cls : `type(cls)`
+            A PointCloud or subclass arranged in a grid.
+        """
+        if root_vertex is None:
+            # Centre of the grid
+            root_vertex = np.ravel_multi_index(np.array(shape) // 2, shape)
+        if adjacency_matrix is None:
+            # Default tree is a spanning tree. Create a triangular mesh
+            # because it has a low average degree and is a connected graph.
+            from .mesh.base import TriMesh
+            tmesh = TriMesh.init_2d_grid(shape, spacing=spacing).as_pointgraph(
+                copy=False, skip_checks=True)
+            return tmesh.minimum_spanning_tree(root_vertex)
+        else:
+            return cls(PointCloud.init_2d_grid(shape, spacing=spacing).points,
+                       adjacency_matrix.copy(),
+                       root_vertex,
+                       copy=False, skip_checks=skip_checks)
+
+    @classmethod
+    def init_from_depth_image(cls, depth_image, spacing=None,
+                              adjacency_matrix=None, root_vertex=None,
+                              skip_checks=False):
+        r"""
+        Return a 3D point cloud from the given depth image. The depth image
+        is assumed to represent height/depth values and the XY coordinates
+        are assumed to unit spaced and represent image coordinates. This is
+        particularly useful for visualising depth values that have been
+        recovered from images.
+
+        The default connectivity is the minimum spanning tree formed from
+        a triangulation of the grid. The default root will be the centre
+        of the grid (for an unmasked image), otherwise it will be the
+        first pixel in the masked are of the image.
+
+        Parameters
+        ----------
+        depth_image : :map:`Image` or subclass
+            A single channel image that contains depth values - as commonly
+            returned by RGBD cameras, for example.
+        spacing : `int` or `tuple` of 2 `int`, optional
+            The spacing between points. If a single `int` is provided, this
+            is applied uniformly across each dimension. If a `tuple` is
+            provided, the spacing is applied non-uniformly as defined e.g.
+            ``(2, 3)`` gives a spacing of 2 for the rows and 3 for the
+            columns.
+        adjacency_matrix : ``(n_vertices, n_vertices)`` `ndarray` or `csr_matrix`, optional
+            The adjacency matrix of the tree in which the rows represent parents
+            and columns represent children. The non-edges must be represented with
+            zeros and the edges can have a weight value.
+
+            :Note: A tree must not have isolated vertices.
+        root_vertex : `int`
+            The vertex to be set as root.
+        skip_checks : `bool`, optional
+            If ``True``, no checks will be performed. Only considered if an
+            adjacency matrix is provided.
+
+        Returns
+        -------
+        depth_cloud : ``type(cls)``
+            A new 3D PointCloud with unit XY coordinates and the given depth
+            values as Z coordinates.
+        """
+        from menpo.image import MaskedImage
+
+        if root_vertex is None and isinstance(depth_image, MaskedImage):
+            # If the image is masked then the masked area may not contain the
+            # default 'centre' root vertex, so we choose the first pixel
+            # in the masked area.
+            root_vertex = np.ravel_multi_index(depth_image.indices()[0],
+                                               depth_image.shape)
+        elif root_vertex is None:
+            # Otherwise the default root is the centre of the image
+            root_vertex = np.ravel_multi_index(np.array(depth_image.shape) // 2,
+                                               depth_image.shape)
+
+        if adjacency_matrix is None:
+            # Default tree is a spanning tree. Create a triangular mesh
+            # because it has a low average degree and is a connected graph.
+            from .mesh.base import TriMesh
+
+            tmesh = TriMesh.init_2d_grid(depth_image.shape, spacing=spacing)
+            tmesh = tmesh.as_pointgraph(copy=False, skip_checks=True)
+            # Performing masking before spanning tree to ensure that the
+            # spanning tree is valid
+            if isinstance(depth_image, MaskedImage):
+                tmesh = tmesh.from_mask(depth_image.mask.as_vector())
+                # Reindex root vertex according to mask
+                mask = depth_image.mask.mask.ravel()
+                root_vertex = root_vertex - np.sum(~mask[:root_vertex])
+            tree_2d = tmesh.minimum_spanning_tree(root_vertex)
+        else:
+            points = PointCloud.init_2d_grid(depth_image.shape,
+                                             spacing=spacing).points
+            tree_2d = cls(points, adjacency_matrix.copy(), root_vertex,
+                          copy=False, skip_checks=skip_checks)
+
+        return cls(np.hstack([tree_2d.points,
+                   depth_image.as_vector(keep_channels=True).T]),
+                   tree_2d.adjacency_matrix, tree_2d.root_vertex,
+                   copy=False, skip_checks=True)
 
     def from_mask(self, mask):
         """
@@ -2425,8 +2784,7 @@ class PointTree(PointDirectedGraph, Tree):
                 raise ValueError('Cannot remove root vertex.')
             # Get new adjacency_matrix and points
             (adjacency_matrix, points) = _mask_adjacency_matrix_and_points(
-                mask, self.adjacency_matrix.todense().copy(),
-                self.points.copy())
+                mask, self.adjacency_matrix, self.points)
             root_vertex = self.root_vertex - np.sum(~mask[:self.root_vertex])
             # iteratively find isolated vertices and remove them
             n_components, labels = csgraph.connected_components(
@@ -2440,7 +2798,7 @@ class PointTree(PointDirectedGraph, Tree):
                 n_components, labels = csgraph.connected_components(
                     adjacency_matrix, directed=True)
             return PointTree(points, adjacency_matrix, root_vertex=root_vertex,
-                             copy=False, skip_checks=False)
+                             copy=True, skip_checks=False)
 
 
 def _is_symmetric(array):
@@ -2547,12 +2905,10 @@ def _mask_adjacency_matrix_and_points(mask, adjacency_matrix, points):
         The provided mask deletes all edges.
     """
     # Find the indices that have been asked to be removed
-    indices_to_remove = np.nonzero(~mask)[0]
+    indices_to_keep = np.nonzero(mask)[0]
     # Remove rows and columns from adjacency matrix
-    adjacency_matrix = np.delete(adjacency_matrix, indices_to_remove, 0)
-    adjacency_matrix = np.delete(adjacency_matrix, indices_to_remove, 1)
-    if adjacency_matrix.size == 0:
-        raise ValueError('The provided mask deletes all edges.')
+    adjacency_matrix = adjacency_matrix[indices_to_keep, :]
+    adjacency_matrix = adjacency_matrix[:, indices_to_keep]
     # remove rows from points
     points = points[mask, :]
     return adjacency_matrix, points
@@ -2573,7 +2929,7 @@ def _convert_edges_to_adjacency_matrix(edges, n_vertices):
 
     Parameters
     ----------
-    edges : ``(n_edges, 2, )`` `ndarray`
+    edges : ``(n_edges, 2, )`` `ndarray` or ``None``
         The `ndarray` of edges, i.e. all the pairs of vertices that are
         connected with an edge.
     n_vertices : `int`
@@ -2589,9 +2945,9 @@ def _convert_edges_to_adjacency_matrix(edges, n_vertices):
     """
     if isinstance(edges, list):
         edges = np.array(edges)
-    if edges.shape[0] == 0:
-        # create adjacency with a single vertex and no edges
-        return np.array([[0]])
+    if edges is None or edges.shape[0] == 0:
+        # create adjacency with zeros
+        return csr_matrix((n_vertices, n_vertices), dtype=np.int)
     else:
         # create sparse adjacency
         return csr_matrix(([1] * edges.shape[0], (edges[:, 0], edges[:, 1])),
@@ -2604,7 +2960,7 @@ def _convert_edges_to_symmetric_adjacency_matrix(edges, n_vertices):
 
     Parameters
     ----------
-    edges : ``(n_edges, 2, )`` `ndarray`
+    edges : ``(n_edges, 2, )`` `ndarray` or ``None``
         The `ndarray` of edges, i.e. all the pairs of vertices that are
         connected with an edge.
     n_vertices : `int`
@@ -2620,9 +2976,13 @@ def _convert_edges_to_symmetric_adjacency_matrix(edges, n_vertices):
     """
     if isinstance(edges, list):
         edges = np.array(edges)
-    rows = np.hstack((edges[:, 0], edges[:, 1]))
-    cols = np.hstack((edges[:, 1], edges[:, 0]))
-    adjacency_matrix = csr_matrix(([1] * rows.shape[0], (rows, cols)),
-                                  shape=(n_vertices, n_vertices))
-    adjacency_matrix[adjacency_matrix.nonzero()] = 1
+    if edges is None or edges.shape[0] == 0:
+        # create adjacency with zeros
+        adjacency_matrix = csr_matrix((n_vertices, n_vertices), dtype=np.int)
+    else:
+        rows = np.hstack((edges[:, 0], edges[:, 1]))
+        cols = np.hstack((edges[:, 1], edges[:, 0]))
+        adjacency_matrix = csr_matrix(([1] * rows.shape[0], (rows, cols)),
+                                      shape=(n_vertices, n_vertices))
+        adjacency_matrix[adjacency_matrix.nonzero()] = 1
     return adjacency_matrix

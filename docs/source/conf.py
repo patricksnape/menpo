@@ -6,47 +6,12 @@ import os
 # this line of code grabbed from docs.readthedocs.org
 on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
 
-if on_rtd:
-    class Mock(object):
-
-        __all__ = []
-
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __call__(self, *args, **kwargs):
-            return Mock()
-
-        @classmethod
-        def __getattr__(cls, name):
-            if name in ('__file__', '__path__'):
-                return '/dev/null'
-            elif name[0] == name[0].upper():
-                mockType = type(name, (), {})
-                mockType.__module__ = __name__
-                return mockType
-            else:
-                return Mock()
-
-    MOCK_MODULES = ['numpy', 'scipy', 'PIL', 'sklearn',
-                    'scipy.linalg', 'numpy.stats', 'scipy.misc', 'PIL.Image',
-                    'matplotlib', 'matplotlib.pyplot', 'scipy.spatial',
-                    'scipy.spatial.distance', 'IPython', 'IPython.display',
-                    'IPython.html', 'IPython.html.widgets',
-                    'numpy.dtype', 'scipy.ndimage', 'scipy.linalg.blas']
-    # Masking our Cython modules
-    MOCK_MODULES += ['menpo.transform.piecewiseaffine.fastpwa',
-                     'menpo.feature.windowiterator',
-                     'menpo.shape.mesh.normals',
-                     'menpo.external.skimage._warps_cy',
-                     'menpo.image.extract_patches']
-    for mod_name in MOCK_MODULES:
-        sys.modules[mod_name] = Mock()
-
 # Add the folder above so we can grab the sphinx extensions
 sys.path.insert(0, os.path.abspath('..'))
-# Add the menpo root so we can grab the version
-sys.path.insert(0, os.path.abspath('../../'))
+
+if not on_rtd:
+  # Add the menpo root so we can grab the version
+  sys.path.insert(0, os.path.abspath('../../'))
 
 import menpo
 
@@ -90,7 +55,7 @@ napoleon_use_admonition_for_notes = True
 napoleon_use_admonition_for_references = True
 
 # The suffix of source filenames.
-source_suffix = '.rst'
+#source_suffix = '.rst'
 
 # The encoding of source files.
 #source_encoding = 'utf-8-sig'
@@ -240,6 +205,10 @@ htmlhelp_basename = 'Menpodoc'
 
 # -- Options for LaTeX output --------------------------------------------------
 
+latex_preamble = """
+\usepackage{enumitem}
+\setlistdepth{999}
+"""
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     #'papersize': 'letterpaper',
@@ -248,7 +217,7 @@ latex_elements = {
     #'pointsize': '10pt',
 
     # Additional stuff for the LaTeX preamble.
-    #'preamble': '',
+    'preamble': latex_preamble
 }
 
 # Grouping the document tree into LaTeX files. List of tuples

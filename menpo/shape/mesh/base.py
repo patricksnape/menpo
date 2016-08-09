@@ -1,22 +1,119 @@
 # coding=utf-8
+from collections import Counter
 import numpy as np
 from warnings import warn
 
-Delaunay = None  # expensive, from scipy.spatial
-
 from .. import PointCloud
 from ..adjacency import mask_adjacency_array, reindex_adjacency_array
+from .normals import compute_vertex_normals, compute_face_normals
 
-from .normals import compute_normals
+
+Delaunay = None  # expensive, from scipy.spatial
+
+
+def grid_tcoords(shape):
+    r"""
+    Return texture coordinates laid out on a grid. This is useful for creating
+    a textured version of an image whereby the underlying mesh maps
+    1-1 with a texture. Therefore, the provided shape should be the shape
+    of the texture.
+
+    Parameters
+    ----------
+    shape : `tuple` of 2 `int`
+        The size of the grid to create, this defines the number of points
+        across each dimension in the grid. The first element is the number
+        of rows and the second is the number of columns.
+
+    Returns
+    -------
+    tcoords : ``(M, 2)`` `ndarray`
+        The texture coordinates of a uniform grid. The origin will be
+        at the image origin (appropriate for viewing texture mapped planes
+        such as viewing image height maps).
+    """
+    # Default tcoords are just a grid, which assumes the input texture
+    # is an image the same size as the input grid. The meshgrid is made in
+    # an ordering that attempts to reduce the amount of copying required but
+    # places the texture coordinates in the correct arrangement.
+    tcoords = np.meshgrid(np.linspace(0, 1, num=shape[1]),
+                          np.linspace(1, 0, num=shape[0]),
+                          indexing='xy')
+    tcoords = np.stack(tcoords, axis=2).reshape([-1, 2])
+    tcoords = np.require(tcoords, requirements=['C'])
+    return tcoords
 
 
 def trilist_to_adjacency_array(trilist):
+    r"""
+    Turn an ``(M, 3)`` trilist into an adjacency array suitable for building
+    graphs.
+
+    Parameters
+    ----------
+    trilist : ``(M, 3)`` `ndarray`
+        The trilist to transform into an adjacency array
+
+    Returns
+    -------
+    adj_array : ``(M * 3, 2)`` `ndarray`
+        The adjacency array including the edges that complete the triangle
+        which are implicit in a trilist.
+    """
     wrap_around_adj = np.hstack([trilist[:, -1][..., None],
                                  trilist[:, 0][..., None]])
     # Build the array of all pairs
     return np.concatenate([trilist[:, :2],
                            trilist[:, 1:],
                            wrap_around_adj])
+
+
+def subsampled_grid_triangulation(shape, subsampling=1):
+    r"""
+    Create a triangulation based on a regular grid. This will be a right
+    handed triangulation with the separating triangle edge going from
+    the top left of a grid point to the bottom right.
+
+    Optionally, the triangulation can be subsampled which has the effect
+    of skipping points. This is useful for subsampling a dense pointcloud.
+
+    Parameters
+    ----------
+    shape : `tuple` of 2 `int`
+        The size of the grid to assume, this defines the number of points
+        across each dimension in the grid. The first element is the number
+        of rows and the second is the number of columns.
+    subsampling : `int`, optional
+        Will be used to index into the implicit grid and has the effect
+        of subsampling the grid (every subsampling'th vertex is chosen).
+
+    Returns
+    -------
+    trilist : ``(M, 3)`` `ndarray`
+        The triangle list created on an implicit regular grid.
+    """
+    # Quickly create the indices in a grid
+    indices_grid = np.zeros(shape)
+    flat_vals_grid = indices_grid.ravel()
+    flat_vals_grid[:] = np.arange(np.prod(shape))
+
+    # Subsample the grid if necessary - useful for making very dense grids
+    # much sparser
+    indices_grid = indices_grid[::subsampling, ::subsampling]
+
+    # Bottom-left triangles (right handed)
+    tri_down_left = np.concatenate(
+        [indices_grid[:-1, :-1].ravel()[..., None],
+         indices_grid[1:, :-1].ravel()[..., None],
+         indices_grid[1:, 1:].ravel()[..., None]], axis=-1)
+
+    # Top-right triangles (right handed)
+    tri_up_right = np.concatenate(
+        [indices_grid[:-1, :-1].ravel()[..., None],
+         indices_grid[1:, 1:].ravel()[..., None],
+         indices_grid[:-1, 1:].ravel()[..., None]], axis=-1)
+
+    return np.vstack([tri_down_left, tri_up_right]).astype(np.uint32)
 
 
 class TriMesh(PointCloud):
@@ -51,6 +148,73 @@ class TriMesh(PointCloud):
         else:
             trilist = np.array(trilist, copy=True, order='C')
         self.trilist = trilist
+
+    @classmethod
+    def init_2d_grid(cls, shape, spacing=None):
+        r"""
+        Create a TriMesh that exists on a regular 2D grid. The first
+        dimension is the number of rows in the grid and the second dimension
+        of the shape is the number of columns. ``spacing`` optionally allows
+        the definition of the distance between points (uniform over points).
+        The spacing may be different for rows and columns.
+
+        The triangulation will be right-handed and the diagonal will go from
+        the top left to the bottom right of a square on the grid.
+
+        Parameters
+        ----------
+        shape : `tuple` of 2 `int`
+            The size of the grid to create, this defines the number of points
+            across each dimension in the grid. The first element is the number
+            of rows and the second is the number of columns.
+        spacing : `int` or `tuple` of 2 `int`, optional
+            The spacing between points. If a single `int` is provided, this
+            is applied uniformly across each dimension. If a `tuple` is
+            provided, the spacing is applied non-uniformly as defined e.g.
+            ``(2, 3)`` gives a spacing of 2 for the rows and 3 for the
+            columns.
+
+        Returns
+        -------
+        trimesh : :map:`TriMesh`
+            A TriMesh arranged in a grid.
+        """
+        pc = PointCloud.init_2d_grid(shape, spacing=spacing)
+        points = pc.points
+        return cls(points, trilist=subsampled_grid_triangulation(
+            shape, subsampling=1), copy=False)
+
+    @classmethod
+    def init_from_depth_image(cls, depth_image):
+        r"""
+        Return a 3D triangular mesh from the given depth image. The depth image
+        is assumed to represent height/depth values and the XY coordinates
+        are assumed to unit spaced and represent image coordinates. This is
+        particularly useful for visualising depth values that have been
+        recovered from images.
+
+        Parameters
+        ----------
+        depth_image : :map:`Image` or subclass
+            A single channel image that contains depth values - as commonly
+            returned by RGBD cameras, for example.
+
+        Returns
+        -------
+        depth_cloud : ``type(cls)``
+            A new 3D TriMesh with unit XY coordinates and the given depth
+            values as Z coordinates. The trilist is constructed as in
+            :meth:`init_2d_grid`.
+        """
+        from menpo.image import MaskedImage
+
+        new_tmesh = cls.init_2d_grid(depth_image.shape)
+        if isinstance(depth_image, MaskedImage):
+            new_tmesh = new_tmesh.from_mask(depth_image.mask.as_vector())
+        return cls(np.hstack([new_tmesh.points,
+                              depth_image.as_vector(keep_channels=True).T]),
+                   trilist=new_tmesh.trilist,
+                   copy=False)
 
     def __str__(self):
         return '{}, n_tris: {}'.format(PointCloud.__str__(self),
@@ -114,6 +278,30 @@ class TriMesh(PointCloud):
             tm.points = tm.points[isolated_mask, :]
             return tm
 
+    def from_tri_mask(self, tri_mask):
+        """
+        A 1D boolean array with the same number of elements as the number of
+        triangles in the TriMesh. This is then broadcast across the dimensions
+        of the mesh and returns a new mesh containing only those
+        triangles that were ``True`` in the mask.
+
+        Parameters
+        ----------
+        mask : ``(n_tris,)`` `ndarray`
+            1D array of booleans
+
+        Returns
+        -------
+        mesh : :map:`TriMesh`
+            A new mesh that has been masked by triangles.
+        """
+        # start with an all False point mask.
+        point_mask = np.zeros(self.n_points, dtype=np.bool)
+        # find all points that are involved in the triangles we wish to
+        # retain and set their mask to True.
+        point_mask[np.unique(self.trilist[tri_mask].ravel())] = True
+        return self.from_mask(point_mask)
+
     def _isolated_mask(self, mask):
         # Find the triangles we need to keep
         masked_adj = mask_adjacency_array(mask, self.trilist)
@@ -172,17 +360,17 @@ class TriMesh(PointCloud):
         """
         if self.n_dims != 3:
             raise ValueError("Normals are only valid for 3D meshes")
-        return compute_normals(self.points, self.trilist)[0]
+        return compute_vertex_normals(self.points, self.trilist)
 
-    def face_normals(self):
+    def tri_normals(self):
         r"""
-        Compute the face normals from the current set of points and
+        Compute the triangle face normals from the current set of points and
         triangle list. Only valid for 3D dimensional meshes.
 
         Returns
         -------
         normals : ``(n_tris, 3)`` `ndarray`
-            Normal at each face.
+            Normal at each triangle face.
 
         Raises
         ------
@@ -191,17 +379,215 @@ class TriMesh(PointCloud):
         """
         if self.n_dims != 3:
             raise ValueError("Normals are only valid for 3D meshes")
-        return compute_normals(self.points, self.trilist)[1]
+        return compute_face_normals(self.points, self.trilist)
+
+    def tri_areas(self):
+        r"""The area of each triangle face.
+
+        Returns
+        -------
+        areas : ``(n_tris,)`` `ndarray`
+            Area of each triangle, ordered as the trilist is
+
+        Raises
+        ------
+        ValueError
+            If mesh is not 2D or 3D
+        """
+        t = self.points[self.trilist]
+        ij, ik = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
+        if self.n_dims == 2:
+            return np.abs(np.cross(ij, ik) * 0.5)
+        elif self.n_dims == 3:
+            return np.linalg.norm(np.cross(ij, ik), axis=1) * 0.5
+        else:
+            raise ValueError('tri_areas can only be calculated on a 2D or '
+                             '3D mesh')
+
+    def mean_tri_area(self):
+        r"""The mean area of each triangle face in this :map:`TriMesh`.
+
+        Returns
+        -------
+        mean_tri_area : ``float``
+            The mean area of each triangle face in this :map:`TriMesh`
+
+        Raises
+        ------
+        ValueError
+            If mesh is not 3D
+        """
+        return np.mean(self.tri_areas())
+
+    def boundary_tri_index(self):
+        r"""Boolean index into triangles that are at the edge of the TriMesh
+
+        Returns
+        -------
+        boundary_tri_index : ``(n_tris,)`` `ndarray`
+            For each triangle (ABC), returns whether any of it's edges is not
+            also an edge of another triangle (and so this triangle exists on
+            the boundary of the TriMesh)
+        """
+        trilist = self.trilist
+        # Get a sorted list of edge pairs
+        edge_pairs = np.sort(np.vstack((trilist[:, [0, 1]],
+                                        trilist[:, [0, 2]],
+                                        trilist[:, [1, 2]])))
+
+        # convert to a tuple per edge pair
+        edges = [tuple(x) for x in edge_pairs]
+        # count the occurrences of the ordered edge pairs - edge pairs that
+        # occur once are at the edge of the whole mesh
+        mesh_edges = (e for e, i in Counter(edges).items() if i == 1)
+        # index back into the edges to find which triangles contain these edges
+        return np.array(list(set(edges.index(e) % trilist.shape[0]
+                                 for e in mesh_edges)))
+
+    def edge_vectors(self):
+        r"""A vector of edges of each triangle face.
+
+        Note that there will be two edges present in cases where two triangles
+        'share' an edge. Consider :meth:`unique_edge_vectors` for a
+        single vector for each physical edge on the :map:`TriMesh`.
+
+        Returns
+        -------
+        edges : ``(n_tris * 3, n_dims)`` `ndarray`
+            For each triangle (ABC), returns the edge vectors AB, BC, CA. All
+            edges are concatenated for a total of ``n_tris * 3`` edges. The
+            ordering is done so that all AB vectors are first in the returned
+            list, followed by BC, then CA.
+        """
+        t = self.points[self.trilist]
+        return np.vstack((t[:, 1] - t[:, 0],
+                          t[:, 2] - t[:, 1],
+                          t[:, 2] - t[:, 0]))
+
+    def edge_indices(self):
+        r"""An unordered index into points that rebuilds the edges of this
+        :map:`TriMesh`.
+
+        Note that there will be two edges present in cases where two triangles
+        'share' an edge. Consider :meth:`unique_edge_indices` for a single index
+        for each physical edge on the :map:`TriMesh`.
+
+        Returns
+        -------
+        edge_indices : ``(n_tris * 3, 2)`` `ndarray`
+            For each triangle (ABC), returns the pair of point indices that
+            rebuild AB, AC, BC. All edge indices are concatenated for a total
+            of ``n_tris * 3`` edge_indices. The ordering is done so that all
+            AB vectors are first in the returned list, followed by BC, then CA.
+        """
+        tl = self.trilist
+        return np.vstack((tl[:, [0, 1]],
+                          tl[:, [1, 2]],
+                          tl[:, [2, 0]]))
+
+    def unique_edge_indices(self):
+        r"""An unordered index into points that rebuilds the unique edges of
+        this :map:`TriMesh`.
+
+        Note that each physical edge will only be counted once in this method
+        (i.e. edges shared between neighbouring triangles are only counted once
+        not twice). The ordering should be considered random.
+
+        Returns
+        -------
+        unique_edge_indices : ``(n_unique_edges, 2)`` `ndarray`
+            Return a point index that rebuilds all edges present in this
+            :map:`TriMesh` only once.
+        """
+        # Get a sorted list of edge pairs. sort ensures that each edge is
+        # ordered from lowest index to highest.
+        edge_pairs = np.sort(self.edge_indices())
+
+        # We want to remove duplicates - this is a little hairy: basically we
+        # get a view on the array where each pair is considered by numpy to be
+        # one item
+        edge_pair_view = np.ascontiguousarray(edge_pairs).view(
+            np.dtype((np.void, edge_pairs.dtype.itemsize * edge_pairs.shape[1])))
+        # Now we can use this view to ask for only unique edges...
+        unique_edge_index = np.unique(edge_pair_view, return_index=True)[1]
+        # And use that to filter our original list down
+        return edge_pairs[unique_edge_index]
+
+    def unique_edge_vectors(self):
+        r"""An unordered vector of unique edges for the whole :map:`TriMesh`.
+
+        Note that each physical edge will only be counted once in this method
+        (i.e. edges shared between neighbouring triangles are only counted once
+        not twice). The ordering should be considered random.
+
+        Returns
+        -------
+        unique_edge_vectors : ``(n_unique_edges, n_dims)`` `ndarray`
+            Vectors for each unique edge in this :map:`TriMesh`.
+        """
+        x = self.points[self.unique_edge_indices()]
+        return x[:, 1] - x[:, 0]
+
+    def edge_lengths(self):
+        r"""The length of each edge in this :map:`TriMesh`.
+
+        Note that there will be two edges present in cases where two triangles
+        'share' an edge. Consider :meth:`unique_edge_indices` for a single
+        index for each physical edge on the :map:`TriMesh`. The ordering
+        matches the case for edges and edge_indices.
+
+        Returns
+        -------
+        edge_lengths : ``(n_tris * 3, )`` `ndarray`
+            Scalar euclidean lengths for each edge in this :map:`TriMesh`.
+        """
+        return np.linalg.norm(self.edge_vectors(), axis=1)
+
+    def unique_edge_lengths(self):
+        r"""The length of each edge in this :map:`TriMesh`.
+
+        Note that each physical edge will only be counted once in this method
+        (i.e. edges shared between neighbouring triangles are only counted once
+        not twice). The ordering should be considered random.
+
+        Returns
+        -------
+        edge_lengths : ``(n_tris * 3, )`` `ndarray`
+            Scalar euclidean lengths for each edge in this :map:`TriMesh`.
+        """
+        return np.linalg.norm(self.unique_edge_vectors(), axis=1)
+
+    def mean_edge_length(self, unique=True):
+        r"""The mean length of each edge in this :map:`TriMesh`.
+
+        Parameters
+        ----------
+        unique : `bool`, optional
+            If ``True``, each shared edge will only be counted once towards
+            the average. If false, shared edges will be counted twice.
+
+        Returns
+        -------
+        mean_edge_length : ``float``
+            The mean length of each edge in this :map:`TriMesh`
+        """
+        return np.mean(self.unique_edge_lengths() if unique
+                       else self.edge_lengths())
 
     def _view_2d(self, figure_id=None, new_figure=False, image_view=True,
                  render_lines=True, line_colour='r', line_style='-',
                  line_width=1., render_markers=True, marker_style='o',
-                 marker_size=20, marker_face_colour='k', marker_edge_colour='k',
-                 marker_edge_width=1., render_axes=True,
+                 marker_size=5, marker_face_colour='k', marker_edge_colour='k',
+                 marker_edge_width=1., render_numbering=False,
+                 numbers_horizontal_align='center',
+                 numbers_vertical_align='bottom',
+                 numbers_font_name='sans-serif', numbers_font_size=10,
+                 numbers_font_style='normal', numbers_font_weight='normal',
+                 numbers_font_colour='k', render_axes=True,
                  axes_font_name='sans-serif', axes_font_size=10,
                  axes_font_style='normal', axes_font_weight='normal',
-                 axes_x_limits=None, axes_y_limits=None, figure_size=(10, 8),
-                 label=None):
+                 axes_x_limits=None, axes_y_limits=None, axes_x_ticks=None,
+                 axes_y_ticks=None, figure_size=(10, 8), label=None):
         r"""
         Visualization of the TriMesh in 2D.
 
@@ -236,7 +622,7 @@ class TriMesh(PointCloud):
                 {., ,, o, v, ^, <, >, +, x, D, d, s, p, *, h, H, 1, 2, 3, 4, 8}
 
         marker_size : `int`, optional
-            The size of the markers in points^2.
+            The size of the markers in points.
         marker_face_colour : See Below, optional
             The face (filling) colour of the markers.
             Example options ::
@@ -255,6 +641,36 @@ class TriMesh(PointCloud):
 
         marker_edge_width : `float`, optional
             The width of the markers' edge.
+        render_numbering : `bool`, optional
+            If ``True``, the landmarks will be numbered.
+        numbers_horizontal_align : ``{center, right, left}``, optional
+            The horizontal alignment of the numbers' texts.
+        numbers_vertical_align : ``{center, top, bottom, baseline}``, optional
+            The vertical alignment of the numbers' texts.
+        numbers_font_name : See Below, optional
+            The font of the numbers. Example options ::
+
+                {serif, sans-serif, cursive, fantasy, monospace}
+
+        numbers_font_size : `int`, optional
+            The font size of the numbers.
+        numbers_font_style : ``{normal, italic, oblique}``, optional
+            The font style of the numbers.
+        numbers_font_weight : See Below, optional
+            The font weight of the numbers.
+            Example options ::
+
+                {ultralight, light, normal, regular, book, medium, roman,
+                semibold, demibold, demi, bold, heavy, extra bold, black}
+
+        numbers_font_colour : See Below, optional
+            The font colour of the numbers.
+            Example options ::
+
+                {r, g, b, c, m, k, w}
+                or
+                (3, ) ndarray
+
         render_axes : `bool`, optional
             If ``True``, the axes will be rendered.
         axes_font_name : See Below, optional
@@ -274,10 +690,20 @@ class TriMesh(PointCloud):
                 {ultralight, light, normal, regular, book, medium, roman,
                 semibold, demibold, demi, bold, heavy, extra bold, black}
 
-        axes_x_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the x axis.
+        axes_x_limits : `float` or (`float`, `float`) or ``None``, optional
+            The limits of the x axis. If `float`, then it sets padding on the
+            right and left of the TriMesh as a percentage of the TriMesh's
+            width. If `tuple` or `list`, then it defines the axis limits. If
+            ``None``, then the limits are set automatically.
         axes_y_limits : (`float`, `float`) `tuple` or ``None``, optional
-            The limits of the y axis.
+            The limits of the y axis. If `float`, then it sets padding on the
+            top and bottom of the TriMesh as a percentage of the TriMesh's
+            height. If `tuple` or `list`, then it defines the axis limits. If
+            ``None``, then the limits are set automatically.
+        axes_x_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the x axis.
+        axes_y_ticks : `list` or `tuple` or ``None``, optional
+            The ticks of the y axis.
         figure_size : (`float`, `float`) `tuple` or ``None``, optional
             The size of the figure in inches.
         label : `str`, optional
@@ -299,12 +725,20 @@ class TriMesh(PointCloud):
                 marker_style=marker_style, marker_size=marker_size,
                 marker_face_colour=marker_face_colour,
                 marker_edge_colour=marker_edge_colour,
-                marker_edge_width=marker_edge_width, render_axes=render_axes,
+                marker_edge_width=marker_edge_width,
+                render_numbering=render_numbering,
+                numbers_horizontal_align=numbers_horizontal_align,
+                numbers_vertical_align=numbers_vertical_align,
+                numbers_font_name=numbers_font_name,
+                numbers_font_size=numbers_font_size,
+                numbers_font_style=numbers_font_style,
+                numbers_font_weight=numbers_font_weight,
+                numbers_font_colour=numbers_font_colour, render_axes=render_axes,
                 axes_font_name=axes_font_name, axes_font_size=axes_font_size,
                 axes_font_style=axes_font_style,
                 axes_font_weight=axes_font_weight, axes_x_limits=axes_x_limits,
-                axes_y_limits=axes_y_limits, figure_size=figure_size,
-                label=label)
+                axes_y_limits=axes_y_limits, axes_x_ticks=axes_x_ticks,
+                axes_y_ticks=axes_y_ticks, figure_size=figure_size, label=label)
 
     def _view_3d(self, figure_id=None, new_figure=False, **kwargs):
         r"""
@@ -327,22 +761,29 @@ class TriMesh(PointCloud):
             return TriMeshViewer3d(figure_id, new_figure,
                                    self.points, self.trilist).render(**kwargs)
         except ImportError:
-            from menpo.visualize import Menpo3dErrorMessage
-            raise ImportError(Menpo3dErrorMessage)
+            from menpo.visualize import Menpo3dMissingError
+            raise Menpo3dMissingError()
 
-    def view_widget(self, browser_style='buttons', figure_size=(10, 8)):
+    def view_widget(self, browser_style='buttons', figure_size=(10, 8),
+                    style='coloured'):
         r"""
-        Visualization of the TriMesh using the :map:`visualize_pointclouds`
-        widget.
+        Visualization of the TriMesh using an interactive widget.
 
         Parameters
         ----------
-        browser_style : ``{buttons, slider}``, optional
-            It defines whether the selector of the TriMesh objects will have
-            the form of plus/minus buttons or a slider.
+        browser_style : {``'buttons'``, ``'slider'``}, optional
+            It defines whether the selector of the objects will have the form of
+            plus/minus buttons or a slider.
         figure_size : (`int`, `int`) `tuple`, optional
             The initial size of the rendered figure.
+        style : {``'coloured'``, ``'minimal'``}, optional
+            If ``'coloured'``, then the style of the widget will be coloured. If
+            ``minimal``, then the style is simple using black and white colours.
         """
-        from menpo.visualize import visualize_pointclouds
-        visualize_pointclouds(self, figure_size=figure_size,
-                              browser_style=browser_style)
+        try:
+            from menpowidgets import visualize_pointclouds
+            visualize_pointclouds(self, figure_size=figure_size, style=style,
+                                  browser_style=browser_style)
+        except ImportError:
+            from menpo.visualize.base import MenpowidgetsMissingError
+            raise MenpowidgetsMissingError()

@@ -1,0 +1,20 @@
+name: menpo_rtd
+channels:
+  - menpo
+dependencies:
+  - python
+  - setuptools
+  - cython>=0.23
+  - pathlib=1.0
+
+  - numpy>=1.10,<2.0
+  - scipy>=0.16,<1.0
+  - pillow>=3.0,<4.0
+  - cyvlfeat>=0.4.3,<0.5
+  - matplotlib>=1.4,<2.0
+  - mock
+  - nose
+  - pip:
+      - sphinx
+      - sphinx_rtd_theme
+      - sphinxmapxrefrole>=0.2
