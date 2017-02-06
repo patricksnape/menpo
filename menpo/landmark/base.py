@@ -1,13 +1,28 @@
-import warnings
-from collections import OrderedDict, MutableMapping
 import fnmatch
+import keyword
+import re
+from collections import OrderedDict, MutableMapping
 
 import numpy as np
 
 from menpo.base import Copyable
+from menpo.compatibility import basestring
 from menpo.transform.base import Transformable
 
+identifier_regex = re.compile('[_A-Za-z][_a-zA-Z0-9]*$')
 
+
+def is_valid_identifier(key):
+    if hasattr(key, 'isidentifier'):
+        isidentifier = key.isidentifier()
+    else:
+        isidentifier = identifier_regex.match(key)
+    return isidentifier and not keyword.iskeyword(key)
+
+
+# The 'Bunch' like (or attribute dictionary) behaviour is inspired by the
+# bunch project - whose license is MIT and can be found here:
+#    https://github.com/dsc/bunch/blob/master/LICENSE.txt
 class Landmarkable(Copyable):
     r"""
     Abstract interface for object that can have landmarks attached to them.
@@ -139,15 +154,65 @@ class LandmarkManager(MutableMapping, Transformable):
         """
         return iter(self._landmark_groups)
 
-    def __setitem__(self, group, value):
+    def __setattr__(self, key, value):
         """
-        Sets a new landmark group for the given label. This can be set using
-        an any :map`PointCloud` subclass. Existing landmark groups will be
-        replaced.
+        Sets a new attribute for the provided identifier.
 
         Parameters
         ----------
-        group : `string`
+        key : object
+            Identifier of the attribute
+        value : object
+            The value to set.
+        """
+        # Hack to have the _landmark_groups attribute on the __dict__
+        if key == '_landmark_groups':
+            object.__setattr__(self, '_landmark_groups', value)
+            return
+
+        try:
+            # Throws exception if not in prototype chain
+            object.__getattribute__(self, key)
+        except AttributeError:
+            try:
+                from menpo.shape import PointCloud
+                if key is None:
+                    raise ValueError('Cannot set using the key `None`. `None` '
+                                     'has a reserved meaning for landmark '
+                                     'groups.')
+
+                if isinstance(value, np.ndarray):
+                    value = PointCloud(value)
+
+                if not isinstance(value, PointCloud):
+                    raise ValueError('Valid types are any subclass of '
+                                     'PointCloud')
+
+                # firstly, make sure the dim is correct
+                n_dims = self.n_dims
+                if n_dims is not None and value.n_dims != n_dims:
+                    raise ValueError(
+                        'Trying to set {}D landmarks on a '
+                        '{}D LandmarkManager'.format(value.n_dims, self.n_dims))
+
+                # Copy the landmark key so that we now own it
+                lmark_group = value.copy()
+                self._landmark_groups[key] = lmark_group
+            except (AttributeError, KeyError):
+                raise AttributeError(key)
+        else:
+            object.__setattr__(self, key, value)
+
+    def __setitem__(self, key, value):
+        """
+        Sets a new landmark group for the given label. This can be set using
+        an any :map`PointCloud` subclass. Existing landmark groups will be
+        replaced. Numpy arrays can also set directly and will be coerced to
+        :map`PointCloud` instances.
+
+        Parameters
+        ----------
+        key : `string`
             Label of new group.
         value : :map:`PointCloud` or subclass
             The new landmark group to set.
@@ -157,31 +222,42 @@ class LandmarkManager(MutableMapping, Transformable):
         DimensionalityError
             If the landmarks and the shape are not of the same dimensionality.
         """
-        from menpo.shape import PointCloud
-        if group is None:
-            raise ValueError('Cannot set using the key `None`. `None` has a '
-                             'reserved meaning for landmark groups.')
+        if not (isinstance(key, basestring) and is_valid_identifier(key)):
+            id_url = 'https://docs.python.org/3.6/reference/lexical_analysis.html#identifiers'
+            raise ValueError('Keys must be valid Python identifiers (see '
+                             '{} for more information)'.format(id_url))
+        self.__setattr__(key, value)
 
-        # firstly, make sure the dim is correct
-        n_dims = self.n_dims
-        if n_dims is not None and value.n_dims != n_dims:
-            raise ValueError(
-                "Trying to set {}D landmarks on a "
-                "{}D LandmarkManager".format(value.n_dims, self.n_dims))
-        if not isinstance(value, PointCloud):
-            raise ValueError('Valid types are any subclass of PointCloud')
+    def __getattr__(self, k=None):
+        """
+        Returns the attribute for the provided key.
 
-        # Copy the landmark group so that we now own it
-        lmark_group = value.copy()
-        self._landmark_groups[group] = lmark_group
+        Parameters
+        ---------
+        k : object
+            The attribute identifier.
 
-    def __getitem__(self, group=None):
+        Returns
+        -------
+        attr : object
+            The matching attribute.
+        """
+        try:
+            # Throws exception if not in prototype chain
+            return object.__getattribute__(self, k)
+        except AttributeError:
+            try:
+                return self._landmark_groups[k]
+            except KeyError:
+                raise AttributeError(k)
+
+    def __getitem__(self, k):
         """
         Returns the group for the provided label.
 
         Parameters
         ---------
-        group : `string`, optional
+        k : `string`, optional
             The label of the group. If None is provided, and if there is only
             one group, the unambiguous group will be returned.
 
@@ -190,24 +266,45 @@ class LandmarkManager(MutableMapping, Transformable):
         lmark_group : :map:`PointCloud` or :map:`LabelledPointUndirectedGraph`
             The matching landmarks.
         """
-        if group is None:
+        if k is None:
             if self.n_groups == 1:
-                group = self.group_labels[0]
+                k = self.group_labels[0]
             else:
-                raise ValueError("Cannot use None as a key as there are {} "
-                                 "landmark groups".format(self.n_groups))
-        return self._landmark_groups[group]
+                raise ValueError(
+                    'Cannot use None as a key as there are {} landmark '
+                    'groups'.format(self.n_groups))
+        return self.__getattr__(k)
 
-    def __delitem__(self, group):
+    def __delattr__(self, k):
+        """
+        Delete the attribute for the provided key.
+
+        Parameters
+        ---------
+        k : `string`
+            The attribute identifier.
+        """
+        try:
+            # Throws exception if not in prototype chain
+            object.__getattribute__(self, k)
+        except AttributeError:
+            try:
+                del self._landmark_groups[k]
+            except KeyError:
+                raise AttributeError(k)
+        else:
+            object.__delattr__(self, k)
+
+    def __delitem__(self, k):
         """
         Delete the group for the provided label.
 
         Parameters
         ---------
-        group : `string`
+        k : `string`
             The label of the group.
         """
-        del self._landmark_groups[group]
+        self.__delattr__(k)
 
     def __len__(self):
         return len(self._landmark_groups)
@@ -218,6 +315,10 @@ class LandmarkManager(MutableMapping, Transformable):
             state['_landmark_groups'] = OrderedDict(state['_landmark_groups'])
 
         self.__dict__ = state
+
+    def __dir__(self):
+        return (super(LandmarkManager, self).__dir__() +
+                list(self._landmark_groups.keys()))
 
     @property
     def n_groups(self):
