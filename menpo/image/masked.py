@@ -4,7 +4,8 @@ from warnings import warn
 
 import numpy as np
 
-from menpo.base import MenpoDeprecationWarning, copy_landmarks_and_path
+from menpo.base import MenpoDeprecationWarning
+from menpo.landmark.base import copy_landmarks_and_path
 from menpo.transform import Translation
 from menpo.visualize.base import ImageViewer
 from .base import Image

@@ -6,8 +6,9 @@ from warnings import warn
 import PIL.Image as PILImage
 import numpy as np
 
-from menpo.base import MenpoDeprecationWarning, Vectorizable, copy_landmarks_and_path
+from menpo.base import MenpoDeprecationWarning, Vectorizable
 from menpo.landmark import Landmarkable
+from menpo.landmark.base import copy_landmarks_and_path
 from menpo.shape import PointCloud, bounding_box
 from menpo.transform import (
     AlignmentUniformScale,

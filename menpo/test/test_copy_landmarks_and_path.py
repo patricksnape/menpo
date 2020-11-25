@@ -1,6 +1,6 @@
 import menpo.io as mio
-from menpo.base import copy_landmarks_and_path
 from menpo.image import Image
+from menpo.landmark.base import copy_landmarks_and_path
 
 
 def test_copy_landmarks_and_path():

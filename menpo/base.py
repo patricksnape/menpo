@@ -1,14 +1,33 @@
-import os
-
 import collections.abc as collections_abc
+import os
 import textwrap
 import warnings
 from functools import partial, wraps
 from itertools import chain
+from pathlib import Path
 from pprint import pformat
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    NoReturn,
+    Optional,
+    Sequence,
+    TYPE_CHECKING,
+    TypeVar,
+    Union,
+)
+
+import numpy as np
+from typing_extensions import SupportsIndex
+
+if TYPE_CHECKING:
+    from menpo.shape import PointCloud
+
+CopyT = TypeVar("CopyT", bound="Copyable")
 
 
-class Copyable(object):
+class Copyable:
     """
     Efficient copying of classes containing numpy arrays.
 
@@ -16,7 +35,7 @@ class Copyable(object):
     efficiently.
     """
 
-    def copy(self):
+    def copy(self) -> CopyT:
         r"""
         Generate an efficient copy of this object.
 
@@ -40,12 +59,12 @@ class Copyable(object):
                 new.__dict__[k] = v
         return new
 
-    def __str__(self):
+    def __str__(self) -> str:
         # We have to be sure that we implement __str__ otherwise the __repr__
         # implementation below will lead to an infinite recursion.
-        return "Copyable Menpo Object with keys:\n{}".format(pformat(self.__dict__))
+        return f"Copyable Menpo Object with keys:\n{pformat(self.__dict__)}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         # Most classes in Menpo derive from Copyable, so it's a handy place
         # to implement Menpo-wide behavior. For use in the notebook, we find
         # __repr__ representations not of very much use, so we default to
@@ -65,14 +84,14 @@ class Vectorizable(Copyable):
     """
 
     @property
-    def n_parameters(self):
+    def n_parameters(self) -> int:
         r"""The length of the vector that this object produces.
 
         :type: `int`
         """
         return (self.as_vector()).shape[0]
 
-    def as_vector(self, **kwargs):
+    def as_vector(self, **kwargs: Any) -> np.ndarray:
         """
         Returns a flattened representation of the object as a single
         vector.
@@ -88,7 +107,7 @@ class Vectorizable(Copyable):
         v.flags.writeable = False
         return v
 
-    def _as_vector(self, **kwargs):
+    def _as_vector(self, **kwargs: Any) -> np.ndarray:
         """
         Returns a flattened representation of the object as a single
         vector.
@@ -101,7 +120,7 @@ class Vectorizable(Copyable):
         """
         raise NotImplementedError()
 
-    def from_vector_inplace(self, vector):
+    def from_vector_inplace(self, vector: np.ndarray) -> None:
         """
         Deprecated. Use the non-mutating API, :map:`from_vector`.
 
@@ -119,9 +138,9 @@ class Vectorizable(Copyable):
             "Use .from_vector() instead.",
             MenpoDeprecationWarning,
         )
-        return self._from_vector_inplace(vector)
+        self._from_vector_inplace(vector)
 
-    def _from_vector_inplace(self, vector):
+    def _from_vector_inplace(self, vector: np.ndarray) -> None:
         """
         Update the state of this object from a vector form.
 
@@ -132,7 +151,7 @@ class Vectorizable(Copyable):
         """
         raise NotImplementedError()
 
-    def from_vector(self, vector):
+    def from_vector(self, vector: np.ndarray) -> "Vectorizable":
         """
         Build a new instance of the object from it's vectorized state.
 
@@ -156,7 +175,7 @@ class Vectorizable(Copyable):
         new._from_vector_inplace(vector)
         return new
 
-    def has_nan_values(self):
+    def has_nan_values(self) -> bool:
         """
         Tests if the vectorized form of the object contains ``nan`` values or
         not. This is particularly useful for objects with unknown values that
@@ -167,8 +186,6 @@ class Vectorizable(Copyable):
         has_nan_values : `bool`
             If the vectorized object contains ``nan`` values.
         """
-        import numpy as np
-
         return np.any(np.isnan(self.as_vector()))
 
 
@@ -194,7 +211,7 @@ class Targetable(Copyable):
     """
 
     @property
-    def n_dims(self):
+    def n_dims(self) -> int:
         r"""The number of dimensions of the :attr:`target`.
 
         :type: `int`
@@ -202,7 +219,7 @@ class Targetable(Copyable):
         return self.target.n_dims
 
     @property
-    def n_points(self):
+    def n_points(self) -> int:
         r"""The number of points on the :attr:`target`.
 
         :type: `int`
@@ -210,14 +227,14 @@ class Targetable(Copyable):
         return self.target.n_points
 
     @property
-    def target(self):
+    def target(self) -> "PointCloud":
         r"""The current :map:`PointCloud` that this object produces.
 
         :type: :map:`PointCloud`
         """
         raise NotImplementedError()
 
-    def set_target(self, new_target):
+    def set_target(self, new_target: "PointCloud") -> None:
         r"""
         Update this object so that it attempts to recreate the ``new_target``.
 
@@ -229,7 +246,7 @@ class Targetable(Copyable):
         self._target_setter_with_verification(new_target)  # trigger the update
         self._sync_state_from_target()  # and a sync
 
-    def _target_setter_with_verification(self, new_target):
+    def _target_setter_with_verification(self, new_target: "PointCloud") -> None:
         r"""Updates the target, checking it is sensible, without triggering a
         sync.
 
@@ -244,7 +261,7 @@ class Targetable(Copyable):
         self._verify_target(new_target)
         self._target_setter(new_target)
 
-    def _verify_target(self, new_target):
+    def _verify_target(self, new_target: "PointCloud") -> None:
         r"""Performs sanity checks to ensure that the new target is valid.
 
         This includes checking the dimensionality matches and the number of
@@ -278,7 +295,7 @@ class Targetable(Copyable):
                 " old".format(self.target.n_points, new_target.n_points)
             )
 
-    def _target_setter(self, new_target):
+    def _target_setter(self, new_target: "PointCloud") -> None:
         r"""Sets the target to the new value.
 
         Does no synchronization. Note that it is advisable that
@@ -292,20 +309,20 @@ class Targetable(Copyable):
         """
         raise NotImplementedError()
 
-    def _sync_target_from_state(self):
+    def _sync_target_from_state(self) -> None:
         new_target = self._new_target_from_state()
         self._target_setter_with_verification(new_target)
 
-    def _new_target_from_state(self):
+    def _new_target_from_state(self) -> "PointCloud":
         r"""Generate a new target that is correct after changes to the object.
 
         Returns
         -------
-        object : ``type(self)``
+        new_target : :map:`PointCloud`
         """
         raise NotImplementedError()
 
-    def _sync_state_from_target(self):
+    def _sync_state_from_target(self) -> None:
         r"""Synchronizes the object state to be correct after changes to the
         target.
 
@@ -315,7 +332,7 @@ class Targetable(Copyable):
         raise NotImplementedError()
 
 
-def menpo_src_dir_path():
+def menpo_src_dir_path() -> Path:
     r"""The path to the top of the menpo Python package.
 
     Useful for locating where the data folder is stored.
@@ -325,8 +342,6 @@ def menpo_src_dir_path():
     path : ``pathlib.Path``
         The full path to the top of the Menpo package
     """
-    from pathlib import Path  # to avoid cluttering the menpo.base namespace
-
     return Path(os.path.abspath(__file__)).parent
 
 
@@ -344,7 +359,7 @@ class MenpoMissingDependencyError(ImportError):
     was not detected.
     """
 
-    def __init__(self, package_name):
+    def __init__(self, package_name: Union[str, ImportError]) -> None:
         super(MenpoMissingDependencyError, self).__init__()
         if isinstance(package_name, ImportError):
             package_name = self._handle_importerror(package_name)
@@ -358,7 +373,7 @@ class MenpoMissingDependencyError(ImportError):
                 conda install {pname}
 
             in your terminal. Note that this package may be provided by another
-            channel such as the "menpo" channel or the "conda-forge" channel.
+            channel such as the "conda-forge" channel.
             Failing that, try installing use pip:
 
                 pip install {pname}
@@ -373,27 +388,14 @@ class MenpoMissingDependencyError(ImportError):
 
         self.missing_name = package_name
 
-    def _handle_importerror(self, error):
-        if hasattr(error, "name"):
-            return error.name
-        else:
-            try:
-                # Python 2 doesn't have ModuleNotFoundError
-                # (so doesn't have the name attribute)
-                base_name = error.message.split("No module named ")[1]
-                # Furthermore - the default ImportError includes the full path
-                # so we split the name and return just the first part
-                # (presumably the name of the package)
-                return base_name.split(".")[0]
-            except:
-                # Worst case, just stringify the error
-                return str(error)
+    def _handle_importerror(self, error: ImportError) -> str:
+        return error.name or str(error)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.message
 
 
-def name_of_callable(c):
+def name_of_callable(c: Callable) -> str:
     r"""
     Return the name of a callable (function or callable class) as a string.
     Recurses on partial function to attempt to find the wrapped
@@ -421,97 +423,6 @@ def name_of_callable(c):
         return c.__class__.__name__  # callable class
 
 
-class doc_inherit(object):
-    """
-    Docstring inheriting method descriptor.
-
-    This uses some Python magic in order to create a decorator that implements
-    the descriptor protocol that allows functions to inherit documentation.
-    This is particularly useful for methods that directly override methods
-    on their base class and simply alter the implementation but not the
-    effective behaviour. Usage of this decorator is as follows:
-
-        @doc_inherit()
-        def foo():
-            # Do something, but inherit the documentation from the method
-            # called 'foo' found on the super() chain.
-
-        @doc_inherit(name="foo2")
-        def foo():
-            # Do something, but inherit the documentation from the method
-            # called 'foo2' found on the super() chain.
-
-    When no argument is passed the name of the method being decorated is
-    looked up on the ``super`` call chain.
-
-    Parameters
-    ----------
-    name : `str`
-        The name of the method to copy documentation from that exists somewhere
-        on the ``super`` inheritance hierarchy.
-    """
-
-    def __init__(self, name=None):
-        self.name = name
-
-    def __call__(self, mthd):
-        # Implementing the call method on a decorator allows the decorator
-        # to recieve arguments in the constructor (__init__). Therefore,
-        # the argument to the call method is always the method being wrapped.
-        self.mthd = mthd
-        # If name is None then default to the name of the method being wrapped.
-        if self.name is None:
-            self.name = self.mthd.__name__
-        return self
-
-    def __get__(self, obj, cls):
-        # Implement the descriptor protocol. There are two different calling
-        # strategies that involve whether the wrapped method has been passed
-        # an instance or not.
-        if obj:
-            return self._get_with_instance(obj, cls)
-        else:
-            return self._get_with_no_instance(cls)
-
-    def _get_with_instance(self, obj, cls):
-        # An instance was passed, so lookup the name on the super chain
-        overridden = getattr(super(cls, obj), self.name, None)
-
-        # Return the wrapped method, passing through the arguments and the
-        # object instance.
-        @wraps(self.mthd, assigned=("__name__", "__module__"))
-        def f(*args, **kwargs):
-            return self.mthd(obj, *args, **kwargs)
-
-        return self._use_parent_doc(f, overridden)
-
-    def _get_with_no_instance(self, cls):
-
-        # This case is more complicated (than when an instance is passed). Here
-        # we use reflection to try and lookup the method. When found, we drop
-        # out the loop.
-        for parent in cls.__mro__[1:]:
-            overridden = getattr(parent, self.name, None)
-            if overridden:
-                break
-
-        # Return the wrapped method, passing through the arguments and the
-        # object instance.
-        @wraps(self.mthd, assigned=("__name__", "__module__"))
-        def f(*args, **kwargs):
-            return self.mthd(*args, **kwargs)
-
-        return self._use_parent_doc(f, overridden)
-
-    def _use_parent_doc(self, func, source):
-        # Attach the documentation (unless the method was not found on the
-        # super chain).
-        if source is None:
-            raise NameError("Can't find '{}' in parents".format(self.name))
-        func.__doc__ = source.__doc__
-        return func
-
-
 class LazyList(collections_abc.Sequence, Copyable):
     r"""
     An immutable sequence that provides the ability to lazily access objects.
@@ -529,13 +440,15 @@ class LazyList(collections_abc.Sequence, Copyable):
         A list of `callable` objects that will be invoked if directly indexed.
     """
 
-    def __init__(self, callables):
+    def __init__(self, callables: Sequence[Callable]):
         self._callables = callables
 
-    def __getitem__(self, slice_):
+    def __getitem__(
+        self, slice_: Union[Iterable, int, SupportsIndex, slice]
+    ) -> "LazyList":
         # note that we have to check for iterable *before* __index__ as ndarray
         # has both (but we expect the iteration behavior when slicing)
-        if isinstance(slice_, collections_abc.Iterable):
+        if isinstance(slice_, Iterable):
             # An iterable object is passed - return a new LazyList
             return LazyList([self._callables[s] for s in slice_])
         elif isinstance(slice_, int) or hasattr(slice_, "__index__"):
@@ -545,11 +458,13 @@ class LazyList(collections_abc.Sequence, Copyable):
             # A slice or unknown type is passed - let List handle it
             return LazyList(self._callables[slice_])
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._callables)
 
     @classmethod
-    def init_from_iterable(cls, iterable, f=None):
+    def init_from_iterable(
+        cls, iterable: Iterable, f: Optional[Callable] = None
+    ) -> "LazyList":
         r"""
         Create a lazy list from an existing iterable (think Python `list`) and
         optionally a `callable` that expects a single parameter which will be
@@ -632,14 +547,14 @@ class LazyList(collections_abc.Sequence, Copyable):
         def delayed(delay_f, delay_x):
             return delay_f(delay_x())
 
-        if isinstance(f, collections_abc.Iterable) and callable(f):
+        if isinstance(f, Iterable) and callable(f):
             raise ValueError(
                 "It is ambiguous whether the provided argument "
                 "is an iterable object or a callable."
             )
 
         new = self.copy()
-        if isinstance(f, collections_abc.Iterable):
+        if isinstance(f, Iterable):
             if len(f) != len(new):
                 raise ValueError(
                     "A callable per element of the LazyList must " "be passed."
@@ -679,7 +594,7 @@ class LazyList(collections_abc.Sequence, Copyable):
         new._callables = list(chain(*zip(*[new._callables] * n)))
         return new
 
-    def copy(self):
+    def copy(self) -> "LazyList":
         r"""
         Generate an efficient copy of this LazyList - copying the underlying
         callables will be lazy and shallow (each callable will **not** be
@@ -694,7 +609,7 @@ class LazyList(collections_abc.Sequence, Copyable):
         new._callables = list(self._callables)
         return new
 
-    def __add__(self, other):
+    def __add__(self, other: Union["LazyList", Iterable]) -> "LazyList":
         r"""
         Create a new LazyList from this list and the given list. The passed list
         items will be concatenated to the end of this list to give a new
@@ -722,7 +637,7 @@ class LazyList(collections_abc.Sequence, Copyable):
         """
         if isinstance(other, LazyList):
             return LazyList(self._callables + other._callables)
-        elif isinstance(other, collections_abc.Iterable):
+        elif isinstance(other, Iterable):
             return self + LazyList.init_from_iterable(other)
         else:
             raise ValueError(
@@ -787,29 +702,3 @@ def partial_doc(func, *args, **kwargs):
     p = partial(func, *args, **kwargs)
     p.__doc__ = func.__doc__
     return p
-
-
-def copy_landmarks_and_path(source, target):
-    r"""
-    Transfers over the landmarks and path, if any, from one object to another.
-    This should be called in conversion and copy functions.
-
-    See `.as_masked()` on :map:`Image` as an example of usage.
-
-    Parameters
-    ----------
-    source : :map:`Landmarkable`
-        The object who's landmarks and path, if any, will be copied
-    target : :map:`Landmarkable`
-        The object who will have landmarks and path set on
-
-    Returns
-    -------
-    target : :map:`Landmarkable`
-        The updated target.
-    """
-    if source.has_landmarks:
-        target.landmarks = source.landmarks
-    if hasattr(source, "path"):
-        target.path = source.path
-    return target

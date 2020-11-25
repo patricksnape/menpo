@@ -2,7 +2,7 @@ from __future__ import division
 
 import numpy as np
 
-from menpo.base import doc_inherit, name_of_callable
+from menpo.base import name_of_callable
 from menpo.math import as_matrix, ipca, pca, pcacov
 from .linear import MeanLinearVectorModel
 from .vectorizable import VectorizableBackedModel
@@ -1494,29 +1494,23 @@ class PCAModel(VectorizableBackedModel, PCAVectorModel):
         """
         return self._mean
 
-    @doc_inherit(name="project_out")
     def project_out_vector(self, instance_vector):
         return PCAVectorModel.project_out(self, instance_vector)
 
-    @doc_inherit(name="reconstruct")
     def reconstruct_vector(self, instance_vector):
         return PCAVectorModel.reconstruct(self, instance_vector)
 
-    @doc_inherit(name="project")
     def project_vector(self, instance_vector):
         return PCAVectorModel.project(self, instance_vector)
 
-    @doc_inherit(name="instance")
     def instance_vector(self, weights, normalized_weights=False):
         return PCAVectorModel.instance(
             self, weights, normalized_weights=normalized_weights
         )
 
-    @doc_inherit(name="component")
     def component_vector(self, index, with_mean=True, scale=1.0):
         return PCAVectorModel.component(self, index, with_mean=with_mean, scale=scale)
 
-    @doc_inherit(name="project_whitened")
     def project_whitened_vector(self, vector_instance):
         return PCAVectorModel.project_whitened(self, vector_instance)
 
